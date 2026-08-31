@@ -1,0 +1,33 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - DATA_DIR=/data
+      - NEXT_PUBLIC_HOCUSPOCUS_URL=${NEXT_PUBLIC_HOCUSPOCUS_URL:-ws://localhost:1234}
+    volumes:
+      - projects-data:/data
+    depends_on:
+      - collab
+    restart: unless-stopped
+
+  collab:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.collab
+    ports:
+      - "1234:1234"
+    environment:
+      - HOCUSPOCUS_PORT=1234
+      - DATA_DIR=/data
+    volumes:
+      - projects-data:/data
+    restart: unless-stopped
+
+volumes:
+  projects-data:
