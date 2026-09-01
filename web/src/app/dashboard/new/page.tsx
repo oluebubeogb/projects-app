@@ -23,7 +23,7 @@ export default function NewProjectPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create");
-      router.push(`/p/${data.project.slug}`);
+      router.push(`/project/${data.project.slug}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
     } finally {

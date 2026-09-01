@@ -69,7 +69,7 @@ export default async function SearchPage({ searchParams }: Props) {
         {results.map((p) => (
           <Link
             key={p.id}
-            href={`/p/${p.slug}`}
+            href={`/project/${p.slug}`}
             className="block p-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] hover:border-[var(--primary)] transition-colors shadow-[var(--shadow)]"
           >
             <h2 className="font-medium">{p.title}</h2>
