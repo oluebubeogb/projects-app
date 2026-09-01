@@ -85,7 +85,7 @@ export default async function HomePage() {
             {publicProjects.map((p) => (
               <Link
                 key={p.id}
-                href={`/project/${p.slug}`}
+                href={`/open?slug=${encodeURIComponent(p.slug)}`}
                 className="block p-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] hover:border-[var(--primary)] transition-colors shadow-[var(--shadow)]"
               >
                 <h3 className="font-medium mb-1 line-clamp-1">{p.title}</h3>
