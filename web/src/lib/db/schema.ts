@@ -7,7 +7,7 @@ export const users = sqliteTable("users", {
   name: text("name").notNull(),
   passwordHash: text("password_hash").notNull(),
   avatarColor: text("avatar_color").notNull().default("#2563eb"),
-  createdAt: integer("created_at", { mode: "timestamp" })
+  createdAt: integer("created_at")
     .notNull()
     .default(sql`(unixepoch())`),
 });
@@ -23,12 +23,11 @@ export const projects = sqliteTable("projects", {
   ownerId: text("owner_id")
     .notNull()
     .references(() => users.id),
-  // Search blob: title + description + plain text content snapshot
   searchText: text("search_text").notNull().default(""),
-  createdAt: integer("created_at", { mode: "timestamp" })
+  createdAt: integer("created_at")
     .notNull()
     .default(sql`(unixepoch())`),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
+  updatedAt: integer("updated_at")
     .notNull()
     .default(sql`(unixepoch())`),
 });
@@ -45,7 +44,7 @@ export const projectMembers = sqliteTable("project_members", {
     .notNull()
     .default("editor"),
   color: text("color").notNull().default("#eab308"),
-  joinedAt: integer("joined_at", { mode: "timestamp" })
+  joinedAt: integer("joined_at")
     .notNull()
     .default(sql`(unixepoch())`),
 });
@@ -62,7 +61,7 @@ export const joinRequests = sqliteTable("join_requests", {
     .notNull()
     .default("pending"),
   message: text("message").default(""),
-  createdAt: integer("created_at", { mode: "timestamp" })
+  createdAt: integer("created_at")
     .notNull()
     .default(sql`(unixepoch())`),
 });
@@ -80,13 +79,12 @@ export const invites = sqliteTable("invites", {
   invitedBy: text("invited_by")
     .notNull()
     .references(() => users.id),
-  acceptedAt: integer("accepted_at", { mode: "timestamp" }),
-  createdAt: integer("created_at", { mode: "timestamp" })
+  acceptedAt: integer("accepted_at"),
+  createdAt: integer("created_at")
     .notNull()
     .default(sql`(unixepoch())`),
 });
 
-/** Git-like commits / version history */
 export const commits = sqliteTable("commits", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
@@ -96,19 +94,17 @@ export const commits = sqliteTable("commits", {
     .notNull()
     .references(() => users.id),
   message: text("message").notNull().default("Update"),
-  // Snapshot of Yjs document as base64
   snapshot: blob("snapshot", { mode: "buffer" }),
   plainText: text("plain_text").default(""),
-  createdAt: integer("created_at", { mode: "timestamp" })
+  createdAt: integer("created_at")
     .notNull()
     .default(sql`(unixepoch())`),
 });
 
-/** Persist Yjs document state for Hocuspocus */
 export const documents = sqliteTable("documents", {
-  name: text("name").primaryKey(), // usually projectId
+  name: text("name").primaryKey(),
   data: blob("data", { mode: "buffer" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
+  updatedAt: integer("updated_at")
     .notNull()
     .default(sql`(unixepoch())`),
 });

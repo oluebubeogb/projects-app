@@ -10,9 +10,17 @@ if (!fs.existsSync(dataDir)) {
 }
 
 const dbPath = path.join(dataDir, "projects.db");
+
+// Log once so Coolify logs show where the DB lives
+if (!(globalThis as unknown as { __projectsDbLogged?: boolean }).__projectsDbLogged) {
+  console.log(`[db] DATA_DIR=${dataDir} path=${dbPath}`);
+  (globalThis as unknown as { __projectsDbLogged?: boolean }).__projectsDbLogged = true;
+}
+
 const sqlite = new Database(dbPath);
 sqlite.pragma("journal_mode = WAL");
 sqlite.pragma("foreign_keys = ON");
+sqlite.pragma("busy_timeout = 5000");
 
 export const db = drizzle(sqlite, { schema });
 
@@ -88,12 +96,12 @@ export function migrate() {
 
     CREATE INDEX IF NOT EXISTS idx_projects_search ON projects(search_text);
     CREATE INDEX IF NOT EXISTS idx_projects_visibility ON projects(visibility);
+    CREATE INDEX IF NOT EXISTS idx_projects_slug ON projects(slug);
     CREATE INDEX IF NOT EXISTS idx_members_project ON project_members(project_id);
     CREATE INDEX IF NOT EXISTS idx_commits_project ON commits(project_id);
   `);
 }
 
-// Auto-migrate on import in server context
 if (typeof window === "undefined") {
   try {
     migrate();

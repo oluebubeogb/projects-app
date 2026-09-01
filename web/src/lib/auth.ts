@@ -66,9 +66,12 @@ export async function getSessionUser() {
     const userId = payload.sub as string;
     if (!userId) return null;
 
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, userId),
-    });
+    const rows = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const user = rows[0];
     if (!user) return null;
 
     return {
@@ -87,10 +90,12 @@ export async function registerUser(
   name: string,
   password: string
 ) {
-  const existing = await db.query.users.findFirst({
-    where: eq(users.email, email.toLowerCase()),
-  });
-  if (existing) throw new Error("Email already registered");
+  const existing = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email.toLowerCase()))
+    .limit(1);
+  if (existing.length > 0) throw new Error("Email already registered");
 
   const id = randomUUID();
   const passwordHash = await hashPassword(password);
@@ -108,9 +113,12 @@ export async function registerUser(
 }
 
 export async function loginUser(email: string, password: string) {
-  const user = await db.query.users.findFirst({
-    where: eq(users.email, email.toLowerCase()),
-  });
+  const rows = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email.toLowerCase()))
+    .limit(1);
+  const user = rows[0];
   if (!user) throw new Error("Invalid email or password");
 
   const ok = await verifyPassword(password, user.passwordHash);
@@ -124,7 +132,6 @@ export async function loginUser(email: string, password: string) {
   };
 }
 
-/** Verify token for Hocuspocus (passed as query param) */
 export async function verifyToken(token: string): Promise<{
   id: string;
   name: string;
@@ -134,9 +141,12 @@ export async function verifyToken(token: string): Promise<{
     const { payload } = await jwtVerify(token, JWT_SECRET);
     const userId = payload.sub as string;
     if (!userId) return null;
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, userId),
-    });
+    const rows = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const user = rows[0];
     if (!user) return null;
     return {
       id: user.id,

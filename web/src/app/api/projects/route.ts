@@ -48,20 +48,26 @@ export async function POST(req: NextRequest) {
 
     const id = uid();
     let slug = slugify(data.title) || "project";
-    // Ensure unique slug
-    const existing = await db.query.projects.findFirst({
-      where: eq(projects.slug, slug),
-    });
-    if (existing) slug = `${slug}-${id.slice(0, 6)}`;
+    if (!slug || slug.length < 1) slug = "project";
+
+    const existing = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.slug, slug))
+      .limit(1);
+
+    if (existing.length > 0) {
+      slug = `${slug}-${id.slice(0, 8)}`;
+    }
 
     await db.insert(projects).values({
       id,
       slug,
       title: data.title,
-      description: data.description,
+      description: data.description ?? "",
       visibility: data.visibility,
       ownerId: user.id,
-      searchText: `${data.title} ${data.description}`.toLowerCase(),
+      searchText: `${data.title} ${data.description ?? ""}`.toLowerCase(),
     });
 
     await db.insert(projectMembers).values({
@@ -72,10 +78,20 @@ export async function POST(req: NextRequest) {
       color: MEMBER_COLORS[0],
     });
 
+    // Verify write landed
+    const check = await db
+      .select({ slug: projects.slug })
+      .from(projects)
+      .where(eq(projects.id, id))
+      .limit(1);
+
+    console.log(`[projects] created id=${id} slug=${slug} verified=${check[0]?.slug}`);
+
     return NextResponse.json({
       project: { id, slug, title: data.title, visibility: data.visibility },
     });
   } catch (err) {
+    console.error("[projects] create error:", err);
     const message =
       err instanceof z.ZodError
         ? err.errors[0]?.message
