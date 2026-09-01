@@ -6,10 +6,11 @@ services:
     ports:
       - "3000:3000"
     environment:
-        DATA_DIR: /data
-        ALLOW_DEBUG: "1"          # enables /api/debug/db
-        JWT_SECRET: ${JWT_SECRET:-...}
-        NEXT_PUBLIC_HOCUSPOCUS_URL: ${NEXT_PUBLIC_HOCUSPOCUS_URL:-wss://ws.project.collab.name.ng}
+      NODE_ENV: production
+      DATA_DIR: /data
+      ALLOW_DEBUG: "1"
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-use-a-long-random-string}
+      NEXT_PUBLIC_HOCUSPOCUS_URL: ${NEXT_PUBLIC_HOCUSPOCUS_URL:-wss://ws.project.collab.name.ng}
     volumes:
       - projects-data:/data
     depends_on:
@@ -20,11 +21,12 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.collab
+    # Use 1235 host port to avoid clash with other apps on 1234
     ports:
       - "1235:1235"
     environment:
-      - HOCUSPOCUS_PORT=1235
-      - DATA_DIR=/data
+      HOCUSPOCUS_PORT: "1235"
+      DATA_DIR: /data
     volumes:
       - projects-data:/data
     restart: unless-stopped
