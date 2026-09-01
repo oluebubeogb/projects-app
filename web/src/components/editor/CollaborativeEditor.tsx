@@ -61,12 +61,37 @@ export function CollaborativeEditor({
 
   const ydoc = useMemo(() => new Y.Doc(), []);
 
+  // Resolve WebSocket URL: prefer env, then smart runtime fallback (avoids localhost in prod)
+  const wsUrl = useMemo(() => {
+    // 1. Explicit env (correct when baked at build time)
+    if (process.env.NEXT_PUBLIC_HOCUSPOCUS_URL) {
+      return process.env.NEXT_PUBLIC_HOCUSPOCUS_URL;
+    }
+
+    // 2. Runtime fallback based on current page location
+    if (typeof window !== "undefined") {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const host = window.location.host;
+
+      // Prefer dedicated ws subdomain (common Coolify pattern)
+      const candidate = `${protocol}//ws.${host.replace(/^www\./, "")}`;
+      console.log(
+        "[editor] no NEXT_PUBLIC_HOCUSPOCUS_URL – using runtime fallback",
+        candidate
+      );
+      return candidate;
+    }
+
+    return "ws://localhost:1235";
+  }, []);
+
   // Create provider once; stable deps
   const provider = useMemo(() => {
-    const wsUrl =
-      process.env.NEXT_PUBLIC_HOCUSPOCUS_URL || "ws://localhost:1235";
-
-    console.log("[editor] connecting to", wsUrl, "doc=", projectId);
+    console.log("[editor] connecting to", wsUrl, "doc=", projectId, {
+      envUrl: process.env.NEXT_PUBLIC_HOCUSPOCUS_URL ?? "(unset)",
+      hasToken: Boolean(token && token.length > 8),
+      projectId,
+    });
 
     const p = new HocuspocusProvider({
       url: wsUrl,
@@ -79,28 +104,38 @@ export function CollaborativeEditor({
 
     providerRef.current = p;
     return p;
-  }, [projectId, token, ydoc]);
+  }, [projectId, token, ydoc, wsUrl]);
 
   useEffect(() => {
     const onStatus = ({ status: s }: { status: string }) => {
-      console.log("[editor] status →", s);
+      console.log("[editor] status →", s, { wsUrl });
       if (s === "connected") setStatus("connected");
       else if (s === "disconnected") setStatus("disconnected");
       else setStatus("connecting");
     };
 
     const onConnect = () => {
-      console.log("[editor] connected");
+      console.log("[editor] connected", { wsUrl, projectId });
       setStatus("connected");
     };
 
-    const onDisconnect = () => {
-      console.log("[editor] disconnected");
+    const onDisconnect = ({ event }: { event?: CloseEvent }) => {
+      console.warn("[editor] disconnected", {
+        code: event?.code,
+        reason: event?.reason,
+        wasClean: event?.wasClean,
+        wsUrl,
+      });
       setStatus("disconnected");
     };
 
-    const onClose = () => {
-      console.log("[editor] connection closed");
+    const onClose = ({ event }: { event?: CloseEvent }) => {
+      console.warn("[editor] connection closed", {
+        code: event?.code,
+        reason: event?.reason,
+        wasClean: event?.wasClean,
+        wsUrl,
+      });
       setStatus("disconnected");
     };
 
@@ -109,18 +144,32 @@ export function CollaborativeEditor({
       setStatus("connected");
     };
 
+    const onAuthenticationFailed = (data: unknown) => {
+      console.error("[editor] authentication failed", data, { wsUrl, projectId });
+      setStatus("disconnected");
+    };
+
+    const onCloseWithError = (data: unknown) => {
+      console.error("[editor] close with error", data, { wsUrl });
+      setStatus("disconnected");
+    };
+
     provider.on("status", onStatus);
     provider.on("connect", onConnect);
     provider.on("disconnect", onDisconnect);
     provider.on("close", onClose);
     provider.on("synced", onSynced);
+    provider.on("authenticationFailed", onAuthenticationFailed);
+    // Some versions emit "close" with error payload
+    provider.on("close", onCloseWithError);
 
     // Force connect if not already
     if (!provider.isConnected) {
       try {
+        console.log("[editor] calling provider.connect()", { wsUrl });
         provider.connect();
       } catch (e) {
-        console.warn("[editor] connect() call failed", e);
+        console.error("[editor] connect() call failed", e, { wsUrl });
       }
     }
 
@@ -151,10 +200,12 @@ export function CollaborativeEditor({
       provider.off("disconnect", onDisconnect);
       provider.off("close", onClose);
       provider.off("synced", onSynced);
+      provider.off("authenticationFailed", onAuthenticationFailed);
+      provider.off("close", onCloseWithError);
       // Do NOT destroy on every unmount during HMR — only when component truly unmounts
       // Destroying too aggressively causes forever-connecting loops
     };
-  }, [provider, user]);
+  }, [provider, user, wsUrl, projectId]);
 
   // Cleanup on true unmount
   useEffect(() => {
@@ -349,16 +400,25 @@ export function CollaborativeEditor({
             : status === "connecting"
               ? "Connecting…"
               : "Offline"}
+          {status !== "connected" && (
+            <span
+              className="text-[10px] opacity-70 max-w-[180px] truncate hidden sm:inline"
+              title={wsUrl}
+            >
+              → {wsUrl.replace(/^wss?:\/\//, "")}
+            </span>
+          )}
           {status === "disconnected" && (
             <button
               type="button"
               className="text-[var(--hq-accent)] underline ml-1"
               onClick={() => {
                 try {
+                  console.log("[editor] manual retry →", wsUrl);
                   provider.connect();
                   setStatus("connecting");
-                } catch {
-                  /* ignore */
+                } catch (e) {
+                  console.error("[editor] retry failed", e);
                 }
               }}
             >

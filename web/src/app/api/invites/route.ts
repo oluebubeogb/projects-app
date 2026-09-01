@@ -78,11 +78,43 @@ export async function POST(req: NextRequest) {
       invitedBy: user.id,
     });
 
-    const base =
+    // Prefer real request origin / proxy headers over env (avoids localhost leaks)
+    const proto =
+      req.headers.get("x-forwarded-proto") ||
+      (req.headers.get("origin")?.startsWith("https") ? "https" : "http") ||
+      "https";
+    const host =
+      req.headers.get("x-forwarded-host") ||
+      req.headers.get("host") ||
+      req.headers.get("origin")?.replace(/^https?:\/\//, "") ||
+      null;
+
+    let base =
       process.env.NEXT_PUBLIC_APP_URL ||
+      (host ? `${proto}://${host}` : null) ||
       req.headers.get("origin") ||
       "http://localhost:3000";
+
+    // Normalize: strip trailing slash
+    base = base.replace(/\/$/, "");
+
+    // Guard: never emit localhost when we have a real host
+    if (base.includes("localhost") && host && !host.includes("localhost")) {
+      base = `${proto}://${host}`;
+    }
+
     const inviteUrl = `${base}/invite?token=${token}`;
+
+    console.log("[invites] created invite", {
+      email: data.email,
+      role: data.role,
+      base,
+      host,
+      proto,
+      origin: req.headers.get("origin"),
+      xfHost: req.headers.get("x-forwarded-host"),
+      xfProto: req.headers.get("x-forwarded-proto"),
+    });
 
     return NextResponse.json({
       invite: { id, email: data.email, role: data.role, token, inviteUrl },

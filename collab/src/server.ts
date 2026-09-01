@@ -64,11 +64,21 @@ const server = Server.configure({
     }),
   ],
 
-  async onAuthenticate({ token, documentName }) {
+  async onAuthenticate({ token, documentName, requestHeaders }) {
     // Accept any non-empty token (JWT from web). Full verification can be added later.
     if (!token || typeof token !== "string" || token.length < 8) {
+      console.warn("[collab] auth rejected – missing/invalid token", {
+        documentName,
+        tokenLen: token ? String(token).length : 0,
+        origin: requestHeaders?.origin || requestHeaders?.Origin,
+      });
       throw new Error("Unauthorized: missing or invalid token");
     }
+    console.log("[collab] auth ok", {
+      documentName,
+      tokenPrefix: token.slice(0, 12) + "…",
+      origin: requestHeaders?.origin || requestHeaders?.Origin,
+    });
     return {
       user: {
         id: token.slice(0, 36),
@@ -76,8 +86,11 @@ const server = Server.configure({
     };
   },
 
-  async onConnect({ documentName }) {
-    console.log(`[collab] ✓ connect → ${documentName}`);
+  async onConnect({ documentName, requestHeaders }) {
+    console.log(`[collab] ✓ connect → ${documentName}`, {
+      origin: requestHeaders?.origin || requestHeaders?.Origin,
+      host: requestHeaders?.host || requestHeaders?.Host,
+    });
   },
 
   async onDisconnect({ documentName }) {

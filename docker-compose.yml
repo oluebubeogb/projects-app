@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.web
+      args:
+        NEXT_PUBLIC_HOCUSPOCUS_URL: ${NEXT_PUBLIC_HOCUSPOCUS_URL:-wss://ws.project.collab.name.ng}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://project.collab.name.ng}
     ports:
       - "3000:3000"
     environment:
@@ -10,7 +13,9 @@ services:
       DATA_DIR: /data
       ALLOW_DEBUG: "1"
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production-use-a-long-random-string}
+      # Runtime fallback (client bundle already has the build-time value)
       NEXT_PUBLIC_HOCUSPOCUS_URL: ${NEXT_PUBLIC_HOCUSPOCUS_URL:-wss://ws.project.collab.name.ng}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://project.collab.name.ng}
     volumes:
       - projects-data:/data
     depends_on:
