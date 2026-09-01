@@ -51,7 +51,7 @@ cd ..
 
 # Terminal 1 — collab server (MUST be running for live editor)
 cd collab && npm run dev
-# → ws://localhost:1234
+# → ws://localhost:1235
 
 # Terminal 2 — web
 cd web && npm run dev
@@ -70,15 +70,15 @@ Env (copy `.env.example`):
 ```env
 JWT_SECRET=your-long-secret
 DATA_DIR=./web/data
-NEXT_PUBLIC_HOCUSPOCUS_URL=ws://localhost:1234
-HOCUSPOCUS_PORT=1234
+NEXT_PUBLIC_HOCUSPOCUS_URL=ws://localhost:1235
+HOCUSPOCUS_PORT=1235
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
 ### WebSocket forever-connecting?
 
-1. Confirm collab process is up: `curl` won’t work — check logs for `Hocuspocus listening on 0.0.0.0:1234`.
-2. `NEXT_PUBLIC_HOCUSPOCUS_URL` must match that port (default `ws://localhost:1234`).
+1. Confirm collab process is up: `curl` won’t work — check logs for `Hocuspocus listening on 0.0.0.0:1235`.
+2. `NEXT_PUBLIC_HOCUSPOCUS_URL` must match that port (default `ws://localhost:1235`).
 3. Browser console should log `[editor] connecting to ws://…` and `[editor] status → connected`.
 4. Behind Coolify/nginx, proxy must pass `Upgrade` + `Connection: upgrade` to the collab service.
 5. Use the **Retry** button on the editor status bar if it drops.
@@ -93,7 +93,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
    - `JWT_SECRET` — strong random string
    - `NEXT_PUBLIC_HOCUSPOCUS_URL` — `wss://project.collab.name.ng` **or** a dedicated `wss://ws.…` subdomain
    - `NEXT_PUBLIC_APP_URL` — `https://project.collab.name.ng`
-4. Map domain → web `:3000`. For WebSocket either same host with path proxy to collab `:1234`, or subdomain → collab `:1234`.
+4. Map domain → web `:3000`. For WebSocket either same host with path proxy to collab `:1235`, or subdomain → collab `:1235`.
 5. Volume `projects-data` holds SQLite + uploads.
 
 ---
@@ -103,7 +103,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 Browser ──HTTP──► Next.js (web :3000)
    │                  │
-   └──WebSocket──────► Hocuspocus (collab :1234)
+   └──WebSocket──────► Hocuspocus (collab :1235)
                            │
                     shared SQLite (/data/projects.db)
                     · users, projects, members

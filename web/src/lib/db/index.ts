@@ -22,8 +22,9 @@ sqlite.pragma("foreign_keys = ON");
 sqlite.pragma("busy_timeout = 5000");
 
 export const db = drizzle(sqlite, { schema });
+export { sqlite };
 
-/** Run once at startup — creates tables if missing */
+/** Run once at startup — creates tables + FTS5 */
 export function migrate() {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -32,6 +33,7 @@ export function migrate() {
       name TEXT NOT NULL,
       password_hash TEXT NOT NULL,
       avatar_color TEXT NOT NULL DEFAULT '#2563eb',
+      role TEXT NOT NULL DEFAULT 'user',
       created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
 
@@ -109,6 +111,18 @@ export function migrate() {
       created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
 
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT DEFAULT '',
+      link TEXT DEFAULT '',
+      meta TEXT DEFAULT '{}',
+      read_at INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
     CREATE INDEX IF NOT EXISTS idx_projects_search ON projects(search_text);
     CREATE INDEX IF NOT EXISTS idx_projects_visibility ON projects(visibility);
     CREATE INDEX IF NOT EXISTS idx_projects_slug ON projects(slug);
@@ -116,18 +130,74 @@ export function migrate() {
     CREATE INDEX IF NOT EXISTS idx_commits_project ON commits(project_id);
     CREATE INDEX IF NOT EXISTS idx_media_project ON media(project_id);
     CREATE INDEX IF NOT EXISTS idx_invites_token ON invites(token);
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
   `);
 
   // Safe column adds for existing DBs
+  const tryAlter = (sql: string) => {
+    try {
+      sqlite.exec(sql);
+    } catch {
+      /* already exists */
+    }
+  };
+  tryAlter(`ALTER TABLE projects ADD COLUMN latest_snapshot_html TEXT DEFAULT ''`);
+  tryAlter(`ALTER TABLE commits ADD COLUMN html TEXT DEFAULT ''`);
+  tryAlter(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'`);
+
+  // FTS5 full-text search over public project content
   try {
-    sqlite.exec(`ALTER TABLE projects ADD COLUMN latest_snapshot_html TEXT DEFAULT ''`);
-  } catch {
-    /* already exists */
+    sqlite.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS projects_fts USING fts5(
+        project_id UNINDEXED,
+        title,
+        description,
+        body,
+        tokenize = 'porter unicode61'
+      );
+    `);
+  } catch (e) {
+    console.warn("[db] FTS5 unavailable:", e);
   }
+}
+
+/** Rebuild FTS index for one project */
+export function upsertProjectFts(projectId: string, title: string, description: string, body: string) {
   try {
-    sqlite.exec(`ALTER TABLE commits ADD COLUMN html TEXT DEFAULT ''`);
-  } catch {
-    /* already exists */
+    sqlite.prepare(`DELETE FROM projects_fts WHERE project_id = ?`).run(projectId);
+    sqlite
+      .prepare(
+        `INSERT INTO projects_fts (project_id, title, description, body) VALUES (?, ?, ?, ?)`
+      )
+      .run(projectId, title, description, body);
+  } catch (e) {
+    console.warn("[db] FTS upsert failed", e);
+  }
+}
+
+/** FTS search — returns project_ids ranked by relevance */
+export function searchProjectsFts(query: string, limit = 30): { projectId: string; rank: number }[] {
+  try {
+    const q = query
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((t) => `"${t.replace(/"/g, '""')}"*`)
+      .join(" ");
+    if (!q) return [];
+    const rows = sqlite
+      .prepare(
+        `SELECT project_id as projectId, rank
+         FROM projects_fts
+         WHERE projects_fts MATCH ?
+         ORDER BY rank
+         LIMIT ?`
+      )
+      .all(q, limit) as { projectId: string; rank: number }[];
+    return rows;
+  } catch (e) {
+    console.warn("[db] FTS search failed, falling back", e);
+    return [];
   }
 }
 

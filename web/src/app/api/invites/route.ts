@@ -6,6 +6,7 @@ import { eq, and } from "drizzle-orm";
 import { uid, MEMBER_COLORS } from "@/lib/utils";
 import { z } from "zod";
 import { randomBytes } from "crypto";
+import { notify } from "@/lib/notifications";
 
 const createSchema = z.object({
   projectId: z.string().min(1),
@@ -152,6 +153,14 @@ export async function PATCH(req: NextRequest) {
       .from(projects)
       .where(eq(projects.id, invite.projectId))
       .limit(1);
+
+    await notify({
+      userId: invite.invitedBy,
+      type: "invite_accepted",
+      title: `${user.name} accepted your invite`,
+      body: `They joined as ${invite.role}` + (proj[0] ? ` on ${proj[0].title}` : ""),
+      link: proj[0] ? `/open?slug=${encodeURIComponent(proj[0].slug)}` : "/dashboard",
+    });
 
     return NextResponse.json({
       ok: true,

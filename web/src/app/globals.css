@@ -268,3 +268,24 @@ mark.attr-other {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--hq-muted);
 }
+
+.ProseMirror img.editor-image,
+.ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 0.75em 0;
+  border: 1px solid var(--hq-border);
+}
+
+.ProseMirror a.editor-link {
+  color: var(--hq-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--hq-border);
+  margin: 1.5em 0;
+}

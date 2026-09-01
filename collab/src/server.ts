@@ -5,7 +5,7 @@ import DatabaseSQLite from "better-sqlite3";
 import path from "path";
 import fs from "fs";
 
-const PORT = Number(process.env.HOCUSPOCUS_PORT || 1234);
+const PORT = Number(process.env.HOCUSPOCUS_PORT || 1235);
 const dataDir = process.env.DATA_DIR || path.join(process.cwd(), "..", "web", "data");
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });

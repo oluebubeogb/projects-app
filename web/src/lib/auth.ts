@@ -79,6 +79,7 @@ export async function getSessionUser() {
       email: user.email,
       name: user.name,
       avatarColor: user.avatarColor,
+      role: (user as { role?: string }).role || "user",
     };
   } catch {
     return null;
@@ -109,7 +110,7 @@ export async function registerUser(
     avatarColor,
   });
 
-  return { id, email: email.toLowerCase(), name, avatarColor };
+  return { id, email: email.toLowerCase(), name, avatarColor, role: "user" as const };
 }
 
 export async function loginUser(email: string, password: string) {
@@ -129,6 +130,7 @@ export async function loginUser(email: string, password: string) {
     email: user.email,
     name: user.name,
     avatarColor: user.avatarColor,
+    role: (user as { role?: string }).role || "user",
   };
 }
 

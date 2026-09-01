@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { joinRequests, projectMembers, projects } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { uid, MEMBER_COLORS } from "@/lib/utils";
+import { notify } from "@/lib/notifications";
 import { z } from "zod";
 
 const createSchema = z.object({
@@ -66,6 +67,20 @@ export async function POST(req: NextRequest) {
       status: "pending",
       message: data.message || "",
     });
+
+    try {
+      const owners = await db
+        .select({ userId: projectMembers.userId })
+        .from(projectMembers)
+        .where(and(eq(projectMembers.projectId, data.projectId), eq(projectMembers.role, "owner")));
+      const proj = await db.select().from(projects).where(eq(projects.id, data.projectId)).limit(1);
+      const title = proj[0]?.title || "a project";
+      const link = proj[0] ? `/open?slug=${encodeURIComponent(proj[0].slug)}` : "/dashboard";
+      for (const o of owners) {
+        if (o.userId === user.id) continue;
+        await notify({ userId: o.userId, type: "join_request", title: `${user.name} requested to join`, body: title, link });
+      }
+    } catch (e) { console.error("[join] notify", e); }
 
     return NextResponse.json({ ok: true });
   } catch (err) {

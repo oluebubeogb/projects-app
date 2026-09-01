@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getSessionUser } from "@/lib/auth";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 
 export async function Header() {
   const user = await getSessionUser();
@@ -29,12 +30,21 @@ export async function Header() {
               >
                 Dashboard
               </Link>
+              {user.role === "admin" && (
+                <Link
+                  href="/admin"
+                  className="text-[var(--hq-muted)] hover:text-[var(--hq-text)] transition-colors"
+                >
+                  Admin
+                </Link>
+              )}
               <Link
                 href="/dashboard/new"
                 className="px-3 py-1.5 rounded-lg bg-[var(--hq-accent)] text-white text-sm font-medium hover:bg-[var(--hq-accent-hover)] transition-colors"
               >
                 New project
               </Link>
+              <NotificationBell />
               <div
                 className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold"
                 style={{ backgroundColor: user.avatarColor }}

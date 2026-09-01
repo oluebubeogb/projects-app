@@ -7,6 +7,10 @@ export const users = sqliteTable("users", {
   name: text("name").notNull(),
   passwordHash: text("password_hash").notNull(),
   avatarColor: text("avatar_color").notNull().default("#2563eb"),
+  /** platform role: user | admin */
+  role: text("role", { enum: ["user", "admin"] })
+    .notNull()
+    .default("user"),
   createdAt: integer("created_at")
     .notNull()
     .default(sql`(unixepoch())`),
@@ -24,7 +28,6 @@ export const projects = sqliteTable("projects", {
     .notNull()
     .references(() => users.id),
   searchText: text("search_text").notNull().default(""),
-  /** Latest public HTML snapshot for read-only visitors */
   latestSnapshotHtml: text("latest_snapshot_html").default(""),
   createdAt: integer("created_at")
     .notNull()
@@ -131,8 +134,25 @@ export const media = sqliteTable("media", {
     .default(sql`(unixepoch())`),
 });
 
+export const notifications = sqliteTable("notifications", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  type: text("type").notNull(), // invite | join_request | join_approved | commit | mention | system
+  title: text("title").notNull(),
+  body: text("body").default(""),
+  link: text("link").default(""),
+  meta: text("meta").default("{}"), // JSON
+  readAt: integer("read_at"),
+  createdAt: integer("created_at")
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 export type User = typeof users.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type ProjectMember = typeof projectMembers.$inferSelect;
 export type Commit = typeof commits.$inferSelect;
 export type Media = typeof media.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;

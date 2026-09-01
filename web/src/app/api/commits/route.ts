@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { commits, projects, projectMembers, users } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { uid } from "@/lib/utils";
+import { upsertProjectFts } from "@/lib/db";
 import { z } from "zod";
 
 const createSchema = z.object({
@@ -104,6 +105,17 @@ export async function POST(req: NextRequest) {
         updatedAt: Math.floor(Date.now() / 1000),
       })
       .where(eq(projects.id, data.projectId));
+
+    // Refresh FTS index
+    const proj = await db.select().from(projects).where(eq(projects.id, data.projectId)).limit(1);
+    if (proj[0] && proj[0].visibility === "public") {
+      upsertProjectFts(
+        data.projectId,
+        proj[0].title,
+        proj[0].description || "",
+        data.plainText || ""
+      );
+    }
 
     return NextResponse.json({
       commit: {

@@ -9,6 +9,8 @@ import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import { HocuspocusProvider } from "@hocuspocus/provider";
 import * as Y from "yjs";
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import Image from "@tiptap/extension-image";
+import Link from "@tiptap/extension-link";
 import {
   Bold,
   Italic,
@@ -16,6 +18,7 @@ import {
   Strikethrough,
   Heading1,
   Heading2,
+  Heading3,
   List,
   ListOrdered,
   Quote,
@@ -27,6 +30,8 @@ import {
   EyeOff,
   History,
   Image as ImageIcon,
+  Link as LinkIcon,
+  Minus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -59,7 +64,7 @@ export function CollaborativeEditor({
   // Create provider once; stable deps
   const provider = useMemo(() => {
     const wsUrl =
-      process.env.NEXT_PUBLIC_HOCUSPOCUS_URL || "ws://localhost:1234";
+      process.env.NEXT_PUBLIC_HOCUSPOCUS_URL || "ws://localhost:1235";
 
     console.log("[editor] connecting to", wsUrl, "doc=", projectId);
 
@@ -171,6 +176,15 @@ export function CollaborativeEditor({
         history: false, // Yjs handles history
       }),
       Underline,
+      Image.configure({
+        inline: false,
+        allowBase64: false,
+        HTMLAttributes: { class: "editor-image" },
+      }),
+      Link.configure({
+        openOnClick: false,
+        HTMLAttributes: { class: "editor-link" },
+      }),
       Placeholder.configure({
         placeholder: "Start writing… others will see your changes live.",
       }),
@@ -196,6 +210,18 @@ export function CollaborativeEditor({
       },
     },
   });
+
+
+  // Allow MediaLibrary to insert into editor
+  useEffect(() => {
+    if (!editor) return;
+    (window as unknown as { __projectsInsertImage?: (url: string) => void }).__projectsInsertImage = (url: string) => {
+      editor.chain().focus().setImage({ src: url }).run();
+    };
+    return () => {
+      delete (window as unknown as { __projectsInsertImage?: (url: string) => void }).__projectsInsertImage;
+    };
+  }, [editor]);
 
   // Toggle class on editor when showMyInputs changes
   useEffect(() => {
@@ -240,6 +266,28 @@ export function CollaborativeEditor({
         case "code":
           chain.toggleCodeBlock().run();
           break;
+        case "h3":
+          chain.toggleHeading({ level: 3 }).run();
+          break;
+        case "hr":
+          chain.setHorizontalRule().run();
+          break;
+        case "link": {
+          const prev = editor.getAttributes("link").href as string | undefined;
+          const url = window.prompt("Link URL", prev || "https://");
+          if (url === null) break;
+          if (url === "") {
+            chain.unsetLink().run();
+          } else {
+            chain.extendMarkRange("link").setLink({ href: url }).run();
+          }
+          break;
+        }
+        case "image": {
+          const url = window.prompt("Image URL");
+          if (url) chain.setImage({ src: url }).run();
+          break;
+        }
         case "undo":
           chain.undo().run();
           break;
@@ -447,6 +495,29 @@ export function CollaborativeEditor({
             icon={Code}
             label="Code block"
             active={isActive("codeBlock")}
+          />
+          <ToolbarBtn
+            cmd="h3"
+            icon={Heading3}
+            label="Heading 3"
+            active={isActive("heading", { level: 3 })}
+          />
+          <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
+          <ToolbarBtn
+            cmd="link"
+            icon={LinkIcon}
+            label="Link"
+            active={isActive("link")}
+          />
+          <ToolbarBtn
+            cmd="image"
+            icon={ImageIcon}
+            label="Insert image by URL"
+          />
+          <ToolbarBtn
+            cmd="hr"
+            icon={Minus}
+            label="Horizontal rule"
           />
         </div>
       )}

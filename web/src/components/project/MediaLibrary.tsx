@@ -67,6 +67,17 @@ export function MediaLibrary({
     navigator.clipboard.writeText(full);
   }
 
+  function insertIntoEditor(url: string) {
+    const full = url.startsWith("http") ? url : `${window.location.origin}${url}`;
+    const fn = (window as unknown as { __projectsInsertImage?: (u: string) => void }).__projectsInsertImage;
+    if (fn) {
+      fn(full);
+      onClose();
+    } else {
+      copyUrl(url);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-lg max-h-[80vh] flex flex-col hq-card shadow-xl">
@@ -110,8 +121,8 @@ export function MediaLibrary({
                 <button
                   key={m.id}
                   type="button"
-                  onClick={() => copyUrl(m.url)}
-                  title="Click to copy URL"
+                  onClick={() => insertIntoEditor(m.url)}
+                  title="Insert into editor (or copy URL)"
                   className="group relative aspect-square rounded-md overflow-hidden border border-[var(--hq-border)] bg-[var(--hq-input-bg)] hover:border-[var(--hq-accent)] transition-colors"
                 >
                   {m.mime.startsWith("image/") ? (
@@ -127,7 +138,7 @@ export function MediaLibrary({
                     </div>
                   )}
                   <span className="absolute inset-x-0 bottom-0 bg-black/60 text-[10px] text-white px-1 py-0.5 truncate opacity-0 group-hover:opacity-100 transition-opacity">
-                    Copy URL
+                    Insert
                   </span>
                 </button>
               ))}
