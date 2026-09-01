@@ -11,7 +11,6 @@ if (!fs.existsSync(dataDir)) {
 
 const dbPath = path.join(dataDir, "projects.db");
 
-// Log once so Coolify logs show where the DB lives
 if (!(globalThis as unknown as { __projectsDbLogged?: boolean }).__projectsDbLogged) {
   console.log(`[db] DATA_DIR=${dataDir} path=${dbPath}`);
   (globalThis as unknown as { __projectsDbLogged?: boolean }).__projectsDbLogged = true;
@@ -44,6 +43,7 @@ export function migrate() {
       visibility TEXT NOT NULL DEFAULT 'public',
       owner_id TEXT NOT NULL REFERENCES users(id),
       search_text TEXT NOT NULL DEFAULT '',
+      latest_snapshot_html TEXT DEFAULT '',
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
@@ -85,6 +85,7 @@ export function migrate() {
       message TEXT NOT NULL DEFAULT 'Update',
       snapshot BLOB,
       plain_text TEXT DEFAULT '',
+      html TEXT DEFAULT '',
       created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
 
@@ -94,12 +95,40 @@ export function migrate() {
       updated_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
 
+    CREATE TABLE IF NOT EXISTS media (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      filename TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      size INTEGER NOT NULL DEFAULT 0,
+      path TEXT NOT NULL,
+      width INTEGER,
+      height INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
     CREATE INDEX IF NOT EXISTS idx_projects_search ON projects(search_text);
     CREATE INDEX IF NOT EXISTS idx_projects_visibility ON projects(visibility);
     CREATE INDEX IF NOT EXISTS idx_projects_slug ON projects(slug);
     CREATE INDEX IF NOT EXISTS idx_members_project ON project_members(project_id);
     CREATE INDEX IF NOT EXISTS idx_commits_project ON commits(project_id);
+    CREATE INDEX IF NOT EXISTS idx_media_project ON media(project_id);
+    CREATE INDEX IF NOT EXISTS idx_invites_token ON invites(token);
   `);
+
+  // Safe column adds for existing DBs
+  try {
+    sqlite.exec(`ALTER TABLE projects ADD COLUMN latest_snapshot_html TEXT DEFAULT ''`);
+  } catch {
+    /* already exists */
+  }
+  try {
+    sqlite.exec(`ALTER TABLE commits ADD COLUMN html TEXT DEFAULT ''`);
+  } catch {
+    /* already exists */
+  }
 }
 
 if (typeof window === "undefined") {

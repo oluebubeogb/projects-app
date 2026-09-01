@@ -49,7 +49,7 @@ export function ClientJoin({
         type="button"
         onClick={requestJoin}
         disabled={loading}
-        className="px-3 py-1.5 text-sm rounded-lg bg-[var(--primary)] text-white font-medium hover:bg-[var(--primary-hover)] disabled:opacity-60 transition-colors"
+        className="px-3 py-1.5 text-sm rounded-lg bg-[var(--hq-accent)] text-white font-medium hover:bg-[var(--hq-accent-hover)] disabled:opacity-60 transition-colors"
       >
         {loading ? "Sending…" : "Request to join"}
       </button>

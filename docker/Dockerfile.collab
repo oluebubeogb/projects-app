@@ -12,8 +12,8 @@ COPY collab/ ./
 RUN mkdir -p /data
 
 ENV DATA_DIR=/data
-ENV HOCUSPOCUS_PORT=1235
+ENV HOCUSPOCUS_PORT=1234
 ENV NODE_ENV=production
 
-EXPOSE 1235
+EXPOSE 1234
 CMD ["npx", "tsx", "src/server.ts"]

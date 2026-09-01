@@ -36,7 +36,7 @@ export default function NewProjectPage() {
       <h1 className="text-2xl font-bold mb-6">Create a project</h1>
       <form
         onSubmit={onSubmit}
-        className="space-y-5 p-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow)]"
+        className="space-y-5 p-6 rounded-[var(--hq-radius)] border border-[var(--hq-border)] bg-[var(--hq-surface)] shadow-[var(--shadow)]"
       >
         {error && (
           <p className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-md">
@@ -51,7 +51,7 @@ export default function NewProjectPage() {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="My research notes"
-            className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--bg)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+            className="w-full px-3 py-2 rounded-lg border border-[var(--hq-border)] bg-[var(--bg)] focus:outline-none focus:ring-2 focus:ring-[var(--hq-accent)]"
           />
         </div>
         <div>
@@ -61,7 +61,7 @@ export default function NewProjectPage() {
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
             placeholder="What is this project about?"
-            className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--bg)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] resize-none"
+            className="w-full px-3 py-2 rounded-lg border border-[var(--hq-border)] bg-[var(--bg)] focus:outline-none focus:ring-2 focus:ring-[var(--hq-accent)] resize-none"
           />
         </div>
         <div>
@@ -74,15 +74,15 @@ export default function NewProjectPage() {
                 onClick={() => setVisibility(v)}
                 className={`flex-1 py-2 rounded-lg border text-sm font-medium capitalize transition-colors ${
                   visibility === v
-                    ? "border-[var(--primary)] bg-blue-50 text-[var(--primary)] dark:bg-blue-900/20"
-                    : "border-[var(--border)] hover:bg-gray-50 dark:hover:bg-gray-800"
+                    ? "border-[var(--hq-accent)] bg-blue-50 text-[var(--hq-accent)] dark:bg-blue-900/20"
+                    : "border-[var(--hq-border)] hover:bg-gray-50 dark:hover:bg-gray-800"
                 }`}
               >
                 {v}
               </button>
             ))}
           </div>
-          <p className="text-xs text-[var(--text-muted)] mt-2">
+          <p className="text-xs text-[var(--hq-muted)] mt-2">
             {visibility === "public"
               ? "Anyone can find and view this project. Joining still requires approval."
               : "Hidden from search. Only members and people with the link can view."}
@@ -91,7 +91,7 @@ export default function NewProjectPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full py-2.5 rounded-lg bg-[var(--primary)] text-white font-medium hover:bg-[var(--primary-hover)] disabled:opacity-60 transition-colors"
+          className="w-full py-2.5 rounded-lg bg-[var(--hq-accent)] text-white font-medium hover:bg-[var(--hq-accent-hover)] disabled:opacity-60 transition-colors"
         >
           {loading ? "Creating…" : "Create project"}
         </button>

@@ -23,10 +23,10 @@ export default async function OpenProjectPage({ searchParams }: Props) {
     return (
       <div className="max-w-lg mx-auto px-4 py-16">
         <h1 className="text-xl font-bold mb-2">Open project</h1>
-        <p className="text-sm text-[var(--text-muted)] mb-4">
+        <p className="text-sm text-[var(--hq-muted)] mb-4">
           Missing <code>?slug=</code> query.
         </p>
-        <Link href="/dashboard" className="text-[var(--primary)] underline">
+        <Link href="/dashboard" className="text-[var(--hq-accent)] underline">
           Dashboard
         </Link>
       </div>
@@ -58,12 +58,12 @@ export default async function OpenProjectPage({ searchParams }: Props) {
     return (
       <div className="max-w-xl mx-auto px-4 py-16">
         <h1 className="text-2xl font-bold mb-2">Project not found</h1>
-        <pre className="text-xs p-4 rounded-lg border overflow-auto bg-[var(--bg-elevated)]">
+        <pre className="text-xs p-4 rounded-lg border overflow-auto bg-[var(--hq-surface)] border-[var(--hq-border)]">
           {JSON.stringify({ slug, dataDir, err, allSlugs }, null, 2)}
         </pre>
         <Link
           href="/api/debug/db?key=projects-debug"
-          className="text-sm text-[var(--primary)] underline mt-4 inline-block"
+          className="text-sm text-[var(--hq-accent)] underline mt-4 inline-block"
         >
           Diagnostics
         </Link>
@@ -87,8 +87,15 @@ export default async function OpenProjectPage({ searchParams }: Props) {
   }
 
   const canEdit =
-    membership &&
+    !!membership &&
     ["owner", "admin", "editor"].includes(membership.role);
+
+  const canManage =
+    !!membership && ["owner", "admin"].includes(membership.role);
+
+  // Public projects: anyone can read the latest snapshot without login
+  const canReadPublic =
+    project.visibility === "public" || !!membership;
 
   let pendingRequest = false;
   if (user && !membership) {
@@ -121,16 +128,16 @@ export default async function OpenProjectPage({ searchParams }: Props) {
     <div className="max-w-5xl mx-auto px-4 py-8">
       <div className="mb-6 flex flex-wrap justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">{project.title}</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{project.title}</h1>
           {project.description ? (
-            <p className="text-[var(--text-muted)] mt-1">{project.description}</p>
+            <p className="text-[var(--hq-muted)] mt-1">{project.description}</p>
           ) : null}
-          <p className="text-xs text-[var(--text-muted)] mt-2 capitalize">
+          <p className="text-xs text-[var(--hq-muted)] mt-2 capitalize">
             {project.visibility}
             {membership ? ` · ${membership.role}` : ""}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-start">
           {user && !membership ? (
             <ClientJoin projectId={project.id} pending={pendingRequest} />
           ) : null}
@@ -138,24 +145,47 @@ export default async function OpenProjectPage({ searchParams }: Props) {
       </div>
 
       {canEdit && collabToken && collabUser ? (
-        <div className="h-[min(70vh,640px)]">
+        <div className="h-[min(75vh,720px)]">
           <ProjectEditor
             projectId={project.id}
             token={collabToken}
             user={collabUser}
+            canManage={canManage}
+          />
+        </div>
+      ) : canReadPublic && project.latestSnapshotHtml ? (
+        <div className="border border-[var(--hq-border)] rounded-[var(--hq-radius)] bg-[var(--hq-surface)] overflow-hidden">
+          <div className="px-3 py-2 border-b border-[var(--hq-border)] text-xs text-[var(--hq-muted)] flex items-center justify-between bg-[var(--hq-sidebar)]">
+            <span>Read-only · latest snapshot</span>
+            {!user && (
+              <Link
+                href={`/login?next=/open?slug=${encodeURIComponent(slug)}`}
+                className="text-[var(--hq-accent)] underline"
+              >
+                Log in to edit
+              </Link>
+            )}
+          </div>
+          <div
+            className="ProseMirror px-6 py-5"
+            dangerouslySetInnerHTML={{ __html: project.latestSnapshotHtml }}
           />
         </div>
       ) : (
-        <div className="border border-[var(--border)] rounded-[var(--radius)] p-6 bg-[var(--bg-elevated)]">
-          <p className="text-sm text-[var(--text-muted)]">
+        <div className="border border-[var(--hq-border)] rounded-[var(--hq-radius)] p-6 bg-[var(--hq-surface)]">
+          <p className="text-sm text-[var(--hq-muted)]">
             {user
-              ? "You need editor access to collaborate live."
-              : "Log in to edit."}
+              ? membership
+                ? "You have view-only access. Ask an admin for editor rights."
+                : "You need editor access to collaborate live. Request to join or wait for an invite."
+              : project.visibility === "public"
+                ? "No published snapshot yet. Log in as a member to edit."
+                : "This is a private project. Log in with access to view."}
           </p>
           {!user ? (
             <Link
               href={`/login?next=/open?slug=${encodeURIComponent(slug)}`}
-              className="text-sm text-[var(--primary)] underline mt-2 inline-block"
+              className="text-sm text-[var(--hq-accent)] underline mt-2 inline-block"
             >
               Log in
             </Link>

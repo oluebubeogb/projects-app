@@ -14,7 +14,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" data-theme="dark">
       <head>
         <link
           href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
@@ -24,7 +24,7 @@ export default function RootLayout({
       <body className="min-h-screen flex flex-col">
         <Header />
         <main className="flex-1">{children}</main>
-        <footer className="border-t border-[var(--border)] py-6 text-center text-sm text-[var(--text-muted)]">
+        <footer className="border-t border-[var(--hq-border)] py-6 text-center text-sm text-[var(--hq-muted)]">
           Projects · project.collab.name.ng
         </footer>
       </body>

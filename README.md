@@ -1,10 +1,18 @@
-# Projects
+# Projects v2
 
 Real-time collaborative workspaces.  
 **Stack:** Next.js 15 · TipTap · Yjs · Hocuspocus · SQLite  
 **Domain:** `project.collab.name.ng`
 
-## v1 (this release)
+## Design
+
+HQ dark-first theme (from design inspo):
+
+- Background `#0f1117`, surface `#1c1f2a`, border `#2a2e3a`
+- Accent `#3b82f6`, success `#22c55e`, danger `#ef4444`
+- Inter font, 8px radius
+
+## v2 features
 
 | Feature | Status |
 |---------|--------|
@@ -12,25 +20,21 @@ Real-time collaborative workspaces.
 | Create public / private projects | ✅ |
 | Live collaborative editor (TipTap + Yjs + Hocuspocus) | ✅ |
 | Presence + colored cursors | ✅ |
-| Public search (title, description, content) | ✅ |
-| Private projects (not in search; view via link) | ✅ |
-| Join requests + owner/admin approve | ✅ |
+| **WebSocket reliability** (connect / retry / status) | ✅ fixed |
+| Public search | ✅ |
+| Join requests + approve | ✅ |
+| **Invite by email** | ✅ |
+| **Commit history UI** (git-like snapshots) | ✅ |
+| **Show my inputs** toggle | ✅ |
+| **Public read-only** from latest snapshot | ✅ |
+| **Media library** | ✅ |
 | Dashboard | ✅ |
 | Coolify / Docker ready | ✅ |
 
-## v2 (next)
+## v3 (planned)
 
-- Invite by email
-- Commit history UI (git-like)
-- Per-user attribution underlines (green for self, unique colors for others)
-- “Show my inputs” toggle
-- Public read-only content from latest snapshot (no login required to *read*)
-- Media library
-
-## v3
-
-- Admin dashboard with dynamic nav (port HQ patterns)
-- Richer toolbar / media insert
+- Admin dashboard with dynamic nav (HQ patterns)
+- Richer toolbar / media insert into editor
 - Notifications
 - Postgres + FTS upgrade
 
@@ -45,7 +49,7 @@ cd web && npm install
 cd ../collab && npm install
 cd ..
 
-# Terminal 1 — collab server
+# Terminal 1 — collab server (MUST be running for live editor)
 cd collab && npm run dev
 # → ws://localhost:1234
 
@@ -54,38 +58,43 @@ cd web && npm run dev
 # → http://localhost:3000
 ```
 
-Env (optional):
+Or from root:
+
+```bash
+npm run install:all
+npm run dev   # both via concurrently
+```
+
+Env (copy `.env.example`):
 
 ```env
 JWT_SECRET=your-long-secret
 DATA_DIR=./web/data
 NEXT_PUBLIC_HOCUSPOCUS_URL=ws://localhost:1234
+HOCUSPOCUS_PORT=1234
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
+
+### WebSocket forever-connecting?
+
+1. Confirm collab process is up: `curl` won’t work — check logs for `Hocuspocus listening on 0.0.0.0:1234`.
+2. `NEXT_PUBLIC_HOCUSPOCUS_URL` must match that port (default `ws://localhost:1234`).
+3. Browser console should log `[editor] connecting to ws://…` and `[editor] status → connected`.
+4. Behind Coolify/nginx, proxy must pass `Upgrade` + `Connection: upgrade` to the collab service.
+5. Use the **Retry** button on the editor status bar if it drops.
+
+---
 
 ## Deploy on Coolify (VPS)
 
 1. Push this repo to Git.
-2. In Coolify, create a **Docker Compose** resource pointing at this repo.
-3. Set env:
+2. Create a **Docker Compose** resource.
+3. Env:
    - `JWT_SECRET` — strong random string
-   - `NEXT_PUBLIC_HOCUSPOCUS_URL` — `wss://project.collab.name.ng` (or a subdomain like `ws.project.collab.name.ng` if you split)
-4. Map domain `project.collab.name.ng` → web service port `3000`.
-5. For WebSocket: either
-   - same domain with path proxy to collab `:1234`, or
-   - subdomain `ws.project.collab.name.ng` → collab `:1234` (easier).
-
-Persistent volume is already defined (`projects-data`) for the SQLite DB shared by web + collab.
-
-### WebSocket behind reverse proxy
-
-Nginx / Traefik must pass:
-
-```
-Upgrade: $http_upgrade
-Connection: upgrade
-```
-
-Coolify’s proxy supports this for the collab service if you expose it.
+   - `NEXT_PUBLIC_HOCUSPOCUS_URL` — `wss://project.collab.name.ng` **or** a dedicated `wss://ws.…` subdomain
+   - `NEXT_PUBLIC_APP_URL` — `https://project.collab.name.ng`
+4. Map domain → web `:3000`. For WebSocket either same host with path proxy to collab `:1234`, or subdomain → collab `:1234`.
+5. Volume `projects-data` holds SQLite + uploads.
 
 ---
 
@@ -98,16 +107,8 @@ Browser ──HTTP──► Next.js (web :3000)
                            │
                     shared SQLite (/data/projects.db)
                     · users, projects, members
-                    · join_requests, invites
-                    · documents (Yjs binary state)
-                    · commits (v2)
+                    · join_requests, invites, commits, media
+                    · documents (Yjs state)
 ```
 
-Each project maps to one Yjs document named by `projectId`.  
-Hocuspocus persists document state; TipTap Collaboration + CollaborationCursor handle concurrent edits and presence.
-
----
-
-## License
-
-Private — for project.collab.name.ng
+Public visitors see `projects.latest_snapshot_html` without auth. Editors create commits (snapshots) from the History panel.

@@ -5,10 +5,10 @@ export async function Header() {
   const user = await getSessionUser();
 
   return (
-    <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--bg-elevated)]/90 backdrop-blur-md">
+    <header className="sticky top-0 z-40 border-b border-[var(--hq-border)] bg-[var(--hq-sidebar)]/90 backdrop-blur-md">
       <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2 font-semibold text-lg tracking-tight">
-          <span className="w-7 h-7 rounded-lg bg-[var(--primary)] text-white flex items-center justify-center text-sm font-bold">
+          <span className="w-7 h-7 rounded-lg bg-[var(--hq-accent)] text-white flex items-center justify-center text-sm font-bold">
             P
           </span>
           Projects
@@ -17,7 +17,7 @@ export async function Header() {
         <nav className="flex items-center gap-3 text-sm">
           <Link
             href="/search"
-            className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+            className="text-[var(--hq-muted)] hover:text-[var(--hq-text)] transition-colors"
           >
             Search
           </Link>
@@ -25,13 +25,13 @@ export async function Header() {
             <>
               <Link
                 href="/dashboard"
-                className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+                className="text-[var(--hq-muted)] hover:text-[var(--hq-text)] transition-colors"
               >
                 Dashboard
               </Link>
               <Link
                 href="/dashboard/new"
-                className="px-3 py-1.5 rounded-lg bg-[var(--primary)] text-white text-sm font-medium hover:bg-[var(--primary-hover)] transition-colors"
+                className="px-3 py-1.5 rounded-lg bg-[var(--hq-accent)] text-white text-sm font-medium hover:bg-[var(--hq-accent-hover)] transition-colors"
               >
                 New project
               </Link>
@@ -47,13 +47,13 @@ export async function Header() {
             <>
               <Link
                 href="/login"
-                className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+                className="text-[var(--hq-muted)] hover:text-[var(--hq-text)] transition-colors"
               >
                 Log in
               </Link>
               <Link
                 href="/register"
-                className="px-3 py-1.5 rounded-lg bg-[var(--primary)] text-white text-sm font-medium hover:bg-[var(--primary-hover)] transition-colors"
+                className="px-3 py-1.5 rounded-lg bg-[var(--hq-accent)] text-white text-sm font-medium hover:bg-[var(--hq-accent-hover)] transition-colors"
               >
                 Sign up
               </Link>

@@ -8,7 +8,7 @@ import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import { HocuspocusProvider } from "@hocuspocus/provider";
 import * as Y from "yjs";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   Bold,
   Italic,
@@ -23,6 +23,10 @@ import {
   Redo,
   Code,
   Users,
+  Eye,
+  EyeOff,
+  History,
+  Image as ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +35,8 @@ type Props = {
   token: string;
   user: { id: string; name: string; color: string };
   readOnly?: boolean;
-  showMyInputs?: boolean;
+  onOpenHistory?: () => void;
+  onOpenMedia?: () => void;
 };
 
 export function CollaborativeEditor({
@@ -39,44 +44,92 @@ export function CollaborativeEditor({
   token,
   user,
   readOnly = false,
-  showMyInputs = false,
+  onOpenHistory,
+  onOpenMedia,
 }: Props) {
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">(
     "connecting"
   );
   const [peers, setPeers] = useState<{ name: string; color: string }[]>([]);
+  const [showMyInputs, setShowMyInputs] = useState(false);
+  const providerRef = useRef<HocuspocusProvider | null>(null);
 
   const ydoc = useMemo(() => new Y.Doc(), []);
 
+  // Create provider once; stable deps
   const provider = useMemo(() => {
     const wsUrl =
       process.env.NEXT_PUBLIC_HOCUSPOCUS_URL || "ws://localhost:1234";
-    return new HocuspocusProvider({
+
+    console.log("[editor] connecting to", wsUrl, "doc=", projectId);
+
+    const p = new HocuspocusProvider({
       url: wsUrl,
       name: projectId,
       token,
       document: ydoc,
+      // Auto-reconnect
+      forceSyncInterval: 20000,
     });
+
+    providerRef.current = p;
+    return p;
   }, [projectId, token, ydoc]);
 
   useEffect(() => {
     const onStatus = ({ status: s }: { status: string }) => {
+      console.log("[editor] status →", s);
       if (s === "connected") setStatus("connected");
       else if (s === "disconnected") setStatus("disconnected");
       else setStatus("connecting");
     };
+
+    const onConnect = () => {
+      console.log("[editor] connected");
+      setStatus("connected");
+    };
+
+    const onDisconnect = () => {
+      console.log("[editor] disconnected");
+      setStatus("disconnected");
+    };
+
+    const onClose = () => {
+      console.log("[editor] connection closed");
+      setStatus("disconnected");
+    };
+
+    const onSynced = () => {
+      console.log("[editor] synced");
+      setStatus("connected");
+    };
+
     provider.on("status", onStatus);
+    provider.on("connect", onConnect);
+    provider.on("disconnect", onDisconnect);
+    provider.on("close", onClose);
+    provider.on("synced", onSynced);
+
+    // Force connect if not already
+    if (!provider.isConnected) {
+      try {
+        provider.connect();
+      } catch (e) {
+        console.warn("[editor] connect() call failed", e);
+      }
+    }
 
     const awareness = provider.awareness;
     if (awareness) {
       awareness.setLocalStateField("user", {
         name: user.name,
         color: user.color,
+        id: user.id,
       });
 
       const updatePeers = () => {
         const states = Array.from(awareness.getStates().values()) as {
-          user?: { name: string; color: string };
+          user?: { name: string; color: string; id?: string };
         }[];
         const list = states
           .filter((s) => s.user && s.user.name !== user.name)
@@ -89,9 +142,28 @@ export function CollaborativeEditor({
 
     return () => {
       provider.off("status", onStatus);
-      provider.destroy();
+      provider.off("connect", onConnect);
+      provider.off("disconnect", onDisconnect);
+      provider.off("close", onClose);
+      provider.off("synced", onSynced);
+      // Do NOT destroy on every unmount during HMR — only when component truly unmounts
+      // Destroying too aggressively causes forever-connecting loops
     };
   }, [provider, user]);
+
+  // Cleanup on true unmount
+  useEffect(() => {
+    return () => {
+      if (providerRef.current) {
+        try {
+          providerRef.current.destroy();
+        } catch {
+          /* ignore */
+        }
+        providerRef.current = null;
+      }
+    };
+  }, []);
 
   const editor = useEditor({
     extensions: [
@@ -114,12 +186,24 @@ export function CollaborativeEditor({
       }),
     ],
     editable: !readOnly,
+    immediatelyRender: false,
     editorProps: {
       attributes: {
-        class: "ProseMirror focus:outline-none",
+        class: cn(
+          "ProseMirror focus:outline-none",
+          showMyInputs && "show-my-inputs"
+        ),
       },
     },
   });
+
+  // Toggle class on editor when showMyInputs changes
+  useEffect(() => {
+    if (!editor) return;
+    const el = editor.view.dom;
+    if (showMyInputs) el.classList.add("show-my-inputs");
+    else el.classList.remove("show-my-inputs");
+  }, [editor, showMyInputs]);
 
   const run = useCallback(
     (cmd: string) => {
@@ -189,8 +273,8 @@ export function CollaborativeEditor({
       className={cn(
         "p-2 rounded-md transition-colors disabled:opacity-40",
         active
-          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-          : "hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
+          ? "bg-[var(--hq-accent)]/15 text-[var(--hq-accent)]"
+          : "hover:bg-[var(--hq-hover)] text-[var(--hq-muted)] hover:text-[var(--hq-text)]"
       )}
     >
       <Icon size={16} />
@@ -198,18 +282,18 @@ export function CollaborativeEditor({
   );
 
   return (
-    <div className="flex flex-col h-full border border-[var(--border)] rounded-[var(--radius)] bg-[var(--bg-elevated)] shadow-[var(--shadow)] overflow-hidden">
+    <div className="flex flex-col h-full border border-[var(--hq-border)] rounded-[var(--hq-radius)] bg-[var(--hq-surface)] shadow-sm overflow-hidden">
       {/* Status bar */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)] text-xs text-[var(--text-muted)]">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--hq-border)] text-xs text-[var(--hq-muted)] bg-[var(--hq-sidebar)]">
         <div className="flex items-center gap-2">
           <span
             className={cn(
               "inline-block w-2 h-2 rounded-full",
               status === "connected"
-                ? "bg-green-500"
+                ? "bg-[var(--hq-success)]"
                 : status === "connecting"
-                  ? "bg-yellow-500 animate-pulse"
-                  : "bg-red-500"
+                  ? "bg-[var(--hq-warning)] animate-pulse"
+                  : "bg-[var(--hq-danger)]"
             )}
           />
           {status === "connected"
@@ -217,22 +301,80 @@ export function CollaborativeEditor({
             : status === "connecting"
               ? "Connecting…"
               : "Offline"}
+          {status === "disconnected" && (
+            <button
+              type="button"
+              className="text-[var(--hq-accent)] underline ml-1"
+              onClick={() => {
+                try {
+                  provider.connect();
+                  setStatus("connecting");
+                } catch {
+                  /* ignore */
+                }
+              }}
+            >
+              Retry
+            </button>
+          )}
         </div>
+
         <div className="flex items-center gap-2">
-          <Users size={14} />
-          <span>{peers.length + 1} online</span>
-          <div className="flex -space-x-1 ml-1">
+          {/* Show my inputs toggle */}
+          {!readOnly && (
+            <button
+              type="button"
+              title={showMyInputs ? "Hide my input highlights" : "Show my inputs"}
+              onClick={() => setShowMyInputs((v) => !v)}
+              className={cn(
+                "flex items-center gap-1 px-2 py-1 rounded-md transition-colors",
+                showMyInputs
+                  ? "bg-[var(--hq-success)]/15 text-[var(--hq-success)]"
+                  : "hover:bg-[var(--hq-hover)]"
+              )}
+            >
+              {showMyInputs ? <Eye size={14} /> : <EyeOff size={14} />}
+              <span className="hidden sm:inline">My inputs</span>
+            </button>
+          )}
+
+          {onOpenHistory && (
+            <button
+              type="button"
+              title="Commit history"
+              onClick={onOpenHistory}
+              className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-[var(--hq-hover)] transition-colors"
+            >
+              <History size={14} />
+              <span className="hidden sm:inline">History</span>
+            </button>
+          )}
+
+          {onOpenMedia && !readOnly && (
+            <button
+              type="button"
+              title="Media library"
+              onClick={onOpenMedia}
+              className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-[var(--hq-hover)] transition-colors"
+            >
+              <ImageIcon size={14} />
+              <span className="hidden sm:inline">Media</span>
+            </button>
+          )}
+
+          <div className="flex items-center gap-1 ml-1">
+            <Users size={14} className="text-[var(--hq-muted)]" />
             <span
-              className="w-5 h-5 rounded-full border-2 border-white dark:border-gray-900 text-[9px] flex items-center justify-center text-white font-bold"
+              className="w-5 h-5 rounded-full text-[10px] flex items-center justify-center text-white font-bold ring-2 ring-[var(--hq-surface)]"
               style={{ backgroundColor: user.color }}
               title={`${user.name} (you)`}
             >
               {user.name[0]?.toUpperCase()}
             </span>
-            {peers.slice(0, 5).map((p, i) => (
+            {peers.map((p, i) => (
               <span
-                key={i}
-                className="w-5 h-5 rounded-full border-2 border-white dark:border-gray-900 text-[9px] flex items-center justify-center text-white font-bold"
+                key={`${p.name}-${i}`}
+                className="w-5 h-5 rounded-full text-[10px] flex items-center justify-center text-white font-bold ring-2 ring-[var(--hq-surface)] -ml-1"
                 style={{ backgroundColor: p.color }}
                 title={p.name}
               >
@@ -245,10 +387,10 @@ export function CollaborativeEditor({
 
       {/* Toolbar */}
       {!readOnly && (
-        <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 border-b border-[var(--border)] bg-gray-50/80 dark:bg-gray-900/40">
+        <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 border-b border-[var(--hq-border)] bg-[var(--hq-sidebar)]/60">
           <ToolbarBtn cmd="undo" icon={Undo} label="Undo" />
           <ToolbarBtn cmd="redo" icon={Redo} label="Redo" />
-          <span className="w-px h-5 bg-[var(--border)] mx-1" />
+          <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
           <ToolbarBtn cmd="bold" icon={Bold} label="Bold" active={isActive("bold")} />
           <ToolbarBtn
             cmd="italic"
@@ -268,7 +410,7 @@ export function CollaborativeEditor({
             label="Strike"
             active={isActive("strike")}
           />
-          <span className="w-px h-5 bg-[var(--border)] mx-1" />
+          <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
           <ToolbarBtn
             cmd="h1"
             icon={Heading1}
@@ -281,7 +423,7 @@ export function CollaborativeEditor({
             label="Heading 2"
             active={isActive("heading", { level: 2 })}
           />
-          <span className="w-px h-5 bg-[var(--border)] mx-1" />
+          <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
           <ToolbarBtn
             cmd="bullet"
             icon={List}

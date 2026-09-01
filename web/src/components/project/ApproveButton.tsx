@@ -40,7 +40,7 @@ export function ApproveButton({ requestId }: { requestId: string }) {
         type="button"
         disabled={loading}
         onClick={() => act("reject")}
-        className="px-2.5 py-1 text-xs rounded-md border border-[var(--border)] hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+        className="px-2.5 py-1 text-xs rounded-md border border-[var(--hq-border)] hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
       >
         Reject
       </button>
