@@ -33,7 +33,8 @@
     "yjs": "^13.6.23",
     "zod": "^3.24.2",
     "@tiptap/extension-image": "^2.11.5",
-    "@tiptap/extension-link": "^2.11.5"
+    "@tiptap/extension-link": "^2.11.5",
+    "@tiptap/extension-text-align": "^2.11.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.9",

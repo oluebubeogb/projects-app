@@ -11,6 +11,7 @@ import * as Y from "yjs";
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
+import TextAlign from "@tiptap/extension-text-align";
 import {
   Bold,
   Italic,
@@ -32,6 +33,20 @@ import {
   Image as ImageIcon,
   Link as LinkIcon,
   Minus,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  IndentIncrease,
+  IndentDecrease,
+  RemoveFormatting,
+  Unlink,
+  Video,
+  Info,
+  Table as TableIcon,
+  SeparatorHorizontal,
+  FileCode,
+  Type,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -57,6 +72,9 @@ export function CollaborativeEditor({
   );
   const [peers, setPeers] = useState<{ name: string; color: string }[]>([]);
   const [showMyInputs, setShowMyInputs] = useState(false);
+  const [toolGroup, setToolGroup] = useState<
+    "text" | "paragraph" | "align" | "insert" | "media" | "advanced"
+  >("text");
   const providerRef = useRef<HocuspocusProvider | null>(null);
 
   const ydoc = useMemo(() => new Y.Doc(), []);
@@ -232,6 +250,9 @@ export function CollaborativeEditor({
         openOnClick: false,
         HTMLAttributes: { class: "editor-link" },
       }),
+      TextAlign.configure({
+        types: ["heading", "paragraph"],
+      }),
       Placeholder.configure({
         placeholder: "Start writing… others will see your changes live.",
       }),
@@ -335,6 +356,74 @@ export function CollaborativeEditor({
           if (url) chain.setImage({ src: url }).run();
           break;
         }
+        case "video": {
+          const url = window.prompt("Video URL (YouTube / Vimeo / direct)");
+          if (url) {
+            chain.focus().insertContent(
+              `<p><a href="${url}" target="_blank" rel="noopener">${url}</a></p>`
+            ).run();
+          }
+          break;
+        }
+        case "clearFormat":
+          chain.clearNodes().unsetAllMarks().run();
+          break;
+        case "unlink":
+          chain.unsetLink().run();
+          break;
+        case "alignLeft":
+          chain.setTextAlign("left").run();
+          break;
+        case "alignCenter":
+          chain.setTextAlign("center").run();
+          break;
+        case "alignRight":
+          chain.setTextAlign("right").run();
+          break;
+        case "alignJustify":
+          chain.setTextAlign("justify").run();
+          break;
+        case "paragraph":
+          chain.setParagraph().run();
+          break;
+        case "indent":
+          // Best-effort: sink list item if in list
+          chain.sinkListItem("listItem").run();
+          break;
+        case "outdent":
+          chain.liftListItem("listItem").run();
+          break;
+        case "infoBlock":
+          chain.focus().insertContent(
+            '<blockquote><p><strong>Info</strong> — add details here.</p></blockquote>'
+          ).run();
+          break;
+        case "button": {
+          const label = window.prompt("Button label", "Click me");
+          const href = window.prompt("Button URL", "https://");
+          if (label && href) {
+            chain.focus().insertContent(
+              `<p><a href="${href}" class="editor-btn">${label}</a></p>`
+            ).run();
+          }
+          break;
+        }
+        case "faq":
+          chain.focus().insertContent(
+            "<h3>Question?</h3><p>Answer goes here.</p>"
+          ).run();
+          break;
+        case "embedHtml": {
+          const html = window.prompt("Paste HTML snippet");
+          if (html) chain.focus().insertContent(html).run();
+          break;
+        }
+        case "codeInline":
+          chain.toggleCode().run();
+          break;
+        case "divider":
+          chain.setHorizontalRule().run();
+          break;
         case "undo":
           chain.undo().run();
           break;
@@ -489,92 +578,110 @@ export function CollaborativeEditor({
         </div>
       </div>
 
-      {/* Toolbar */}
+      {/* Toolbar — grouped like modern doc editors */}
       {!readOnly && (
-        <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 border-b border-[var(--hq-border)] bg-[var(--hq-sidebar)]/60">
-          <ToolbarBtn cmd="undo" icon={Undo} label="Undo" />
-          <ToolbarBtn cmd="redo" icon={Redo} label="Redo" />
-          <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
-          <ToolbarBtn cmd="bold" icon={Bold} label="Bold" active={isActive("bold")} />
-          <ToolbarBtn
-            cmd="italic"
-            icon={Italic}
-            label="Italic"
-            active={isActive("italic")}
-          />
-          <ToolbarBtn
-            cmd="underline"
-            icon={UnderlineIcon}
-            label="Underline"
-            active={isActive("underline")}
-          />
-          <ToolbarBtn
-            cmd="strike"
-            icon={Strikethrough}
-            label="Strike"
-            active={isActive("strike")}
-          />
-          <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
-          <ToolbarBtn
-            cmd="h1"
-            icon={Heading1}
-            label="Heading 1"
-            active={isActive("heading", { level: 1 })}
-          />
-          <ToolbarBtn
-            cmd="h2"
-            icon={Heading2}
-            label="Heading 2"
-            active={isActive("heading", { level: 2 })}
-          />
-          <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
-          <ToolbarBtn
-            cmd="bullet"
-            icon={List}
-            label="Bullet list"
-            active={isActive("bulletList")}
-          />
-          <ToolbarBtn
-            cmd="ordered"
-            icon={ListOrdered}
-            label="Ordered list"
-            active={isActive("orderedList")}
-          />
-          <ToolbarBtn
-            cmd="quote"
-            icon={Quote}
-            label="Quote"
-            active={isActive("blockquote")}
-          />
-          <ToolbarBtn
-            cmd="code"
-            icon={Code}
-            label="Code block"
-            active={isActive("codeBlock")}
-          />
-          <ToolbarBtn
-            cmd="h3"
-            icon={Heading3}
-            label="Heading 3"
-            active={isActive("heading", { level: 3 })}
-          />
-          <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
-          <ToolbarBtn
-            cmd="link"
-            icon={LinkIcon}
-            label="Link"
-            active={isActive("link")}
-          />
-          <ToolbarBtn
-            cmd="image"
-            icon={ImageIcon}
-            label="Insert image by URL"
-          />
-          <ToolbarBtn
-            cmd="hr"
-            icon={Minus}
-            label="Horizontal rule"
-          />
+        <div className="border-b border-[var(--hq-border)] bg-[var(--hq-sidebar)]/60">
+          {/* Row 1: groups + undo/redo */}
+          <div className="flex flex-wrap items-center gap-0.5 px-2 pt-1.5 pb-0">
+            <ToolbarBtn cmd="undo" icon={Undo} label="Undo" />
+            <ToolbarBtn cmd="redo" icon={Redo} label="Redo" />
+            <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
+            {(
+              [
+                ["text", "Text"],
+                ["paragraph", "Paragraph"],
+                ["align", "Align"],
+                ["insert", "Insert"],
+                ["media", "Media"],
+                ["advanced", "Advanced"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setToolGroup(id)}
+                className={cn(
+                  "px-2.5 py-1.5 text-xs font-medium rounded-t-md transition-colors border-b-2 -mb-px",
+                  toolGroup === id
+                    ? "border-[var(--hq-accent)] text-[var(--hq-accent)] bg-[var(--hq-surface)]"
+                    : "border-transparent text-[var(--hq-muted)] hover:text-[var(--hq-text)] hover:bg-[var(--hq-hover)]"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {/* Row 2: tools for active group */}
+          <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 border-t border-[var(--hq-border)]/60">
+            {toolGroup === "text" && (
+              <>
+                <ToolbarBtn cmd="bold" icon={Bold} label="Bold" active={isActive("bold")} />
+                <ToolbarBtn cmd="italic" icon={Italic} label="Italic" active={isActive("italic")} />
+                <ToolbarBtn cmd="underline" icon={UnderlineIcon} label="Underline" active={isActive("underline")} />
+                <ToolbarBtn cmd="strike" icon={Strikethrough} label="Strikethrough" active={isActive("strike")} />
+                <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
+                <ToolbarBtn cmd="h2" icon={Heading2} label="Heading" active={isActive("heading", { level: 2 })} />
+                <ToolbarBtn cmd="quote" icon={Quote} label="Quote" active={isActive("blockquote")} />
+                <ToolbarBtn cmd="codeInline" icon={Code} label="Inline code" active={isActive("code")} />
+                <ToolbarBtn cmd="clearFormat" icon={RemoveFormatting} label="Clear formatting" />
+              </>
+            )}
+            {toolGroup === "paragraph" && (
+              <>
+                <ToolbarBtn cmd="paragraph" icon={Type} label="Paragraph" active={isActive("paragraph")} />
+                <ToolbarBtn cmd="h1" icon={Heading1} label="Heading 1" active={isActive("heading", { level: 1 })} />
+                <ToolbarBtn cmd="h2" icon={Heading2} label="Heading 2" active={isActive("heading", { level: 2 })} />
+                <ToolbarBtn cmd="h3" icon={Heading3} label="Heading 3" active={isActive("heading", { level: 3 })} />
+                <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
+                <ToolbarBtn cmd="bullet" icon={List} label="Bullet list" active={isActive("bulletList")} />
+                <ToolbarBtn cmd="ordered" icon={ListOrdered} label="Numbered list" active={isActive("orderedList")} />
+                <ToolbarBtn cmd="outdent" icon={IndentDecrease} label="Decrease indent" />
+                <ToolbarBtn cmd="indent" icon={IndentIncrease} label="Increase indent" />
+                <ToolbarBtn cmd="hr" icon={Minus} label="Horizontal rule" />
+              </>
+            )}
+            {toolGroup === "align" && (
+              <>
+                <ToolbarBtn cmd="alignLeft" icon={AlignLeft} label="Align left" active={editor?.isActive({ textAlign: "left" })} />
+                <ToolbarBtn cmd="alignCenter" icon={AlignCenter} label="Align center" active={editor?.isActive({ textAlign: "center" })} />
+                <ToolbarBtn cmd="alignRight" icon={AlignRight} label="Align right" active={editor?.isActive({ textAlign: "right" })} />
+                <ToolbarBtn cmd="alignJustify" icon={AlignJustify} label="Justify" active={editor?.isActive({ textAlign: "justify" })} />
+              </>
+            )}
+            {toolGroup === "insert" && (
+              <>
+                <ToolbarBtn cmd="link" icon={LinkIcon} label="Link" active={isActive("link")} />
+                <ToolbarBtn cmd="unlink" icon={Unlink} label="Unlink" />
+                <ToolbarBtn cmd="divider" icon={SeparatorHorizontal} label="Divider" />
+                <ToolbarBtn cmd="code" icon={FileCode} label="Code block" active={isActive("codeBlock")} />
+                <ToolbarBtn cmd="embedHtml" icon={Code} label="Embed HTML" />
+              </>
+            )}
+            {toolGroup === "media" && (
+              <>
+                <ToolbarBtn cmd="image" icon={ImageIcon} label="Image URL" />
+                <ToolbarBtn cmd="video" icon={Video} label="Video link" />
+                {onOpenMedia && (
+                  <button
+                    type="button"
+                    title="Media library"
+                    onClick={onOpenMedia}
+                    className="p-2 rounded-md hover:bg-[var(--hq-hover)] text-[var(--hq-muted)] hover:text-[var(--hq-text)]"
+                  >
+                    <ImageIcon size={16} />
+                  </button>
+                )}
+              </>
+            )}
+            {toolGroup === "advanced" && (
+              <>
+                <ToolbarBtn cmd="code" icon={FileCode} label="Code block" active={isActive("codeBlock")} />
+                <ToolbarBtn cmd="infoBlock" icon={Info} label="Info block" />
+                <ToolbarBtn cmd="button" icon={LinkIcon} label="Button" />
+                <ToolbarBtn cmd="faq" icon={Quote} label="FAQ block" />
+              </>
+            )}
+          </div>
         </div>
       )}
 

@@ -78,47 +78,53 @@ export async function POST(req: NextRequest) {
       invitedBy: user.id,
     });
 
-    // Prefer real request origin / proxy headers over env (avoids localhost leaks)
-    const proto =
-      req.headers.get("x-forwarded-proto") ||
-      (req.headers.get("origin")?.startsWith("https") ? "https" : "http") ||
-      "https";
-    const host =
-      req.headers.get("x-forwarded-host") ||
-      req.headers.get("host") ||
-      req.headers.get("origin")?.replace(/^https?:\/\//, "") ||
-      null;
+    // Notify existing user if registered
+    const invitee = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, data.email.toLowerCase()))
+      .limit(1);
 
-    let base =
-      process.env.NEXT_PUBLIC_APP_URL ||
-      (host ? `${proto}://${host}` : null) ||
-      req.headers.get("origin") ||
-      "http://localhost:3000";
+    const proj = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, data.projectId))
+      .limit(1);
 
-    // Normalize: strip trailing slash
-    base = base.replace(/\/$/, "");
+    const projectLink = proj[0]
+      ? `/project/${encodeURIComponent(proj[0].slug)}?invite=${token}`
+      : `/invite?token=${token}`;
 
-    // Guard: never emit localhost when we have a real host
-    if (base.includes("localhost") && host && !host.includes("localhost")) {
-      base = `${proto}://${host}`;
+    if (invitee[0]) {
+      await notify({
+        userId: invitee[0].id,
+        type: "project_invite",
+        title: `${user.name} invited you to collaborate`,
+        body: proj[0]
+          ? `Join "${proj[0].title}" as ${data.role}`
+          : `You were invited as ${data.role}`,
+        link: projectLink,
+        meta: { projectId: data.projectId, role: data.role, token },
+      });
     }
 
-    const inviteUrl = `${base}/invite?token=${token}`;
-
-    console.log("[invites] created invite", {
+    console.log("[invites] created", {
       email: data.email,
       role: data.role,
-      base,
-      host,
-      proto,
-      origin: req.headers.get("origin"),
-      xfHost: req.headers.get("x-forwarded-host"),
-      xfProto: req.headers.get("x-forwarded-proto"),
+      notified: Boolean(invitee[0]),
+      projectId: data.projectId,
     });
 
     return NextResponse.json({
-      invite: { id, email: data.email, role: data.role, token, inviteUrl },
+      ok: true,
+      invite: {
+        id,
+        email: data.email,
+        role: data.role,
+        notified: Boolean(invitee[0]),
+      },
     });
+
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed";
     return NextResponse.json({ error: msg }, { status: 400 });
