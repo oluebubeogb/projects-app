@@ -9,9 +9,9 @@ import {
 } from "@/lib/db/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import Link from "next/link";
-import { ClientJoin } from "@/components/p/ClientJoin";
-import { AcceptInviteButton } from "@/components/p/AcceptInviteButton";
-import { CopyLinkButton } from "@/components/p/CopyLinkButton";
+import { ClientJoin } from "@/components/project/ClientJoin";
+import { AcceptInviteButton } from "@/components/project/AcceptInviteButton";
+import { CopyLinkButton } from "@/components/project/CopyLinkButton";
 import { Pencil } from "lucide-react";
 
 export const dynamic = "force-dynamic";
