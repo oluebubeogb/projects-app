@@ -102,14 +102,14 @@ export async function POST(req: NextRequest) {
       .set({
         latestSnapshotHtml: data.html || "",
         searchText: `${data.plainText || ""}`.toLowerCase().slice(0, 8000),
-        updatedAt: Math.floor(Date.now() / 1000),
+        updatedAt: new Date(),
       })
       .where(eq(projects.id, data.projectId));
 
     // Refresh FTS index
     const proj = await db.select().from(projects).where(eq(projects.id, data.projectId)).limit(1);
     if (proj[0] && proj[0].visibility === "public") {
-      upsertProjectFts(
+      await upsertProjectFts(
         data.projectId,
         proj[0].title,
         proj[0].description || "",
@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
       commit: {
         id,
         message: data.message,
-        createdAt: Math.floor(Date.now() / 1000),
+        createdAt: new Date(),
         authorName: user.name,
       },
     });

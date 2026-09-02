@@ -10,7 +10,7 @@ type P = {
   title: string;
   visibility: string;
   description: string;
-  updatedAt: number;
+  updatedAt: string | number | Date;
 };
 
 function ProjectsInner() {
@@ -55,7 +55,7 @@ function ProjectsInner() {
                 </div>
               </div>
               <span className="text-xs text-[var(--hq-muted)]">
-                {new Date(p.updatedAt * 1000).toLocaleDateString()}
+                {new Date(p.updatedAt).toLocaleDateString()}
               </span>
             </Link>
           ))}

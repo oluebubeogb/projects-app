@@ -1,71 +1,109 @@
 import { Server } from "@hocuspocus/server";
-import { Database } from "@hocuspocus/extension-database";
+import { Redis } from "@hocuspocus/extension-redis";
 import { Logger } from "@hocuspocus/extension-logger";
-import DatabaseSQLite from "better-sqlite3";
-import path from "path";
-import fs from "fs";
+import { Database } from "@hocuspocus/extension-database";
 
 const PORT = Number(process.env.HOCUSPOCUS_PORT || 1235);
-const dataDir = process.env.DATA_DIR || path.join(process.cwd(), "..", "web", "data");
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+const DATABASE_URL = process.env.DATABASE_URL;
+
+// Parse redis URL for host/port
+function parseRedisUrl(url: string) {
+  try {
+    const u = new URL(url);
+    return {
+      host: u.hostname || "127.0.0.1",
+      port: Number(u.port || 6379),
+      password: u.password || undefined,
+      db: u.pathname && u.pathname.length > 1 ? Number(u.pathname.slice(1)) : 0,
+    };
+  } catch {
+    return { host: "127.0.0.1", port: 6379 };
+  }
 }
 
-const dbPath = path.join(dataDir, "projects.db");
-const sqlite = new DatabaseSQLite(dbPath);
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("busy_timeout = 5000");
+const redisOpts = parseRedisUrl(REDIS_URL);
 
-// Ensure documents table exists (shared with web app)
-sqlite.exec(`
-  CREATE TABLE IF NOT EXISTS documents (
-    name TEXT PRIMARY KEY,
-    data BLOB NOT NULL,
-    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+let pgClient: any = null;
+async function getPg() {
+  if (!DATABASE_URL) return null;
+  if (pgClient) return pgClient;
+  try {
+    const postgres = (await import("postgres")).default;
+    pgClient = postgres(DATABASE_URL, { max: 5, prepare: false });
+    await pgClient`
+      CREATE TABLE IF NOT EXISTS documents (
+        name TEXT PRIMARY KEY,
+        data BYTEA NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `;
+    console.log("[collab] Postgres document store ready");
+    return pgClient;
+  } catch (e) {
+    console.warn("[collab] Postgres document store unavailable", e);
+    return null;
+  }
+}
+
+const extensions: any[] = [
+  new Logger(),
+  // Redis: multi-instance sync + in-memory speed
+  new Redis({
+    host: redisOpts.host,
+    port: redisOpts.port,
+    ...(redisOpts.password ? { options: { password: redisOpts.password } } : {}),
+  }),
+];
+
+// Durable dual-write to Postgres when available
+if (DATABASE_URL) {
+  extensions.push(
+    new Database({
+      fetch: async ({ documentName }) => {
+        try {
+          const pg = await getPg();
+          if (!pg) return null;
+          const rows = await pg`
+            SELECT data FROM documents WHERE name = ${documentName} LIMIT 1
+          `;
+          if (!rows[0]?.data) return null;
+          return Buffer.from(rows[0].data);
+        } catch (e) {
+          console.error("[collab] pg fetch error", documentName, e);
+          return null;
+        }
+      },
+      store: async ({ documentName, state }) => {
+        try {
+          const pg = await getPg();
+          if (!pg) return;
+          await pg`
+            INSERT INTO documents (name, data, updated_at)
+            VALUES (${documentName}, ${state}, now())
+            ON CONFLICT (name) DO UPDATE
+            SET data = EXCLUDED.data, updated_at = now()
+          `;
+        } catch (e) {
+          console.error("[collab] pg store error", documentName, e);
+        }
+      },
+    })
   );
-`);
+}
 
 const server = Server.configure({
+  name: process.env.HOCUSPOCUS_NAME || `collab-${PORT}`,
   port: PORT,
-  // Allow connections from any origin (Coolify / reverse proxy handles TLS)
   address: "0.0.0.0",
   timeout: 30000,
   debounce: 2000,
   maxDebounce: 10000,
   quiet: false,
 
-  extensions: [
-    new Logger(),
-    new Database({
-      fetch: async ({ documentName }) => {
-        try {
-          const row = sqlite
-            .prepare("SELECT data FROM documents WHERE name = ?")
-            .get(documentName) as { data: Buffer } | undefined;
-          return row?.data ?? null;
-        } catch (e) {
-          console.error("[collab] fetch error", documentName, e);
-          return null;
-        }
-      },
-      store: async ({ documentName, state }) => {
-        try {
-          sqlite
-            .prepare(
-              `INSERT INTO documents (name, data, updated_at)
-               VALUES (?, ?, unixepoch())
-               ON CONFLICT(name) DO UPDATE SET data = excluded.data, updated_at = unixepoch()`
-            )
-            .run(documentName, state);
-        } catch (e) {
-          console.error("[collab] store error", documentName, e);
-        }
-      },
-    }),
-  ],
+  extensions,
 
   async onAuthenticate({ token, documentName, requestHeaders }) {
-    // Accept any non-empty token (JWT from web). Full verification can be added later.
     if (!token || typeof token !== "string" || token.length < 8) {
       console.warn("[collab] auth rejected – missing/invalid token", {
         documentName,
@@ -104,6 +142,11 @@ const server = Server.configure({
 
 server.listen().then(() => {
   console.log(`[collab] Hocuspocus listening on 0.0.0.0:${PORT}`);
-  console.log(`[collab] DB: ${dbPath}`);
+  console.log(`[collab] Redis: ${redisOpts.host}:${redisOpts.port}`);
+  if (DATABASE_URL) {
+    console.log(`[collab] Durable store: PostgreSQL (dual-write)`);
+  } else {
+    console.log(`[collab] Durable store: Redis only (set DATABASE_URL for Postgres dual-write)`);
+  }
   console.log(`[collab] Ready for WebSocket connections`);
 });

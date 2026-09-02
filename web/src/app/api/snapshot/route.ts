@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
       .set({
         latestSnapshotHtml: data.html,
         searchText: data.plainText.toLowerCase().slice(0, 8000),
-        updatedAt: Math.floor(Date.now() / 1000),
+        updatedAt: new Date(),
       })
       .where(eq(projects.id, data.projectId));
 

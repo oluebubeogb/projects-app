@@ -9,7 +9,7 @@ type U = {
   name: string;
   role: string;
   avatarColor: string;
-  createdAt: number;
+  createdAt: string | number | Date;
 };
 
 function UsersInner() {
@@ -85,7 +85,7 @@ function UsersInner() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs text-[var(--hq-muted)]">
-                    {new Date(u.createdAt * 1000).toLocaleDateString()}
+                    {new Date(u.createdAt).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-right">
                     {u.role === "admin" ? (

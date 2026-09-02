@@ -8,7 +8,7 @@ type CommitRow = {
   message: string;
   plainText: string | null;
   html: string | null;
-  createdAt: number;
+  createdAt: string | number | Date;
   authorName: string;
   authorColor: string;
 };
@@ -81,8 +81,8 @@ export function CommitHistory({
     }
   }
 
-  function formatTime(ts: number) {
-    const d = new Date(ts * 1000);
+  function formatTime(ts: number | string | Date) {
+    const d = new Date(ts);
     return d.toLocaleString();
   }
 

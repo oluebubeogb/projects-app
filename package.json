@@ -1,15 +1,16 @@
 {
   "name": "projects",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "private": true,
-  "description": "Projects — collaborative workspaces. TipTap + Yjs + Hocuspocus",
+  "description": "Projects — collaborative workspaces. TipTap + Yjs + Hocuspocus + PostgreSQL + Redis",
   "scripts": {
     "dev": "concurrently -n web,collab -c blue,magenta \"npm run dev -w web\" \"npm run dev -w collab\"",
     "dev:web": "npm run dev -w web",
     "dev:collab": "npm run dev -w collab",
     "build": "npm run build -w web",
     "start": "concurrently -n web,collab -c blue,magenta \"npm run start -w web\" \"npm run start -w collab\"",
-    "install:all": "npm install && npm install -w web && npm install -w collab"
+    "install:all": "npm install && npm install -w web && npm install -w collab",
+    "db:migrate": "npm run db:migrate -w web"
   },
   "workspaces": [
     "web",

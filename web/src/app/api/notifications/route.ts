@@ -52,7 +52,7 @@ export async function PATCH(req: NextRequest) {
   if (all) {
     await db
       .update(notifications)
-      .set({ readAt: Math.floor(Date.now() / 1000) })
+      .set({ readAt: new Date() })
       .where(
         and(eq(notifications.userId, user.id), isNull(notifications.readAt))
       );
@@ -63,7 +63,7 @@ export async function PATCH(req: NextRequest) {
 
   await db
     .update(notifications)
-    .set({ readAt: Math.floor(Date.now() / 1000) })
+    .set({ readAt: new Date() })
     .where(
       and(eq(notifications.id, id), eq(notifications.userId, user.id))
     );

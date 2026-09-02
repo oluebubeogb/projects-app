@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { db, sqlite } from "@/lib/db";
+import { db, dbHealth } from "@/lib/db";
 import { users, projects, projectMembers, media, commits } from "@/lib/db/schema";
-import { sql, count } from "drizzle-orm";
+import { count } from "drizzle-orm";
 
 export async function GET() {
   const user = await getSessionUser();
@@ -16,13 +16,7 @@ export async function GET() {
   const [mediaCount] = await db.select({ c: count() }).from(media);
   const [commitCount] = await db.select({ c: count() }).from(commits);
 
-  let ftsReady = false;
-  try {
-    sqlite.prepare(`SELECT count(*) FROM projects_fts`).get();
-    ftsReady = true;
-  } catch {
-    ftsReady = false;
-  }
+  const ftsReady = await dbHealth();
 
   return NextResponse.json({
     stats: {
@@ -32,6 +26,7 @@ export async function GET() {
       media: mediaCount.c,
       commits: commitCount.c,
       ftsReady,
+      engine: "postgresql",
     },
   });
 }

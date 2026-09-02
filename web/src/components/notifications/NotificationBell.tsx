@@ -12,7 +12,7 @@ type N = {
   body: string | null;
   link: string | null;
   readAt: number | null;
-  createdAt: number;
+  createdAt: string | number | Date;
 };
 
 export function NotificationBell() {
@@ -134,7 +134,7 @@ export function NotificationBell() {
                         </div>
                       ) : null}
                       <div className="text-[10px] text-[var(--hq-muted)] mt-1">
-                        {new Date(n.createdAt * 1000).toLocaleString()}
+                        {new Date(n.createdAt).toLocaleString()}
                       </div>
                     </Link>
                   ) : (

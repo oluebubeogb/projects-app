@@ -1,10 +1,46 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-projects}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-projects}
+      POSTGRES_DB: ${POSTGRES_DB:-projects}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-projects} -d ${POSTGRES_DB:-projects}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    # Expose only internally; Coolify / reverse proxy doesn't need public DB
+    expose:
+      - "5432"
+
+  redis:
+    image: redis:7-alpine
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    expose:
+      - "6379"
+
   web:
     build:
       context: .
       dockerfile: docker/Dockerfile.web
       args:
-        # Leave empty for same-origin (client uses window.location + /collab)
         NEXT_PUBLIC_HOCUSPOCUS_URL: ${NEXT_PUBLIC_HOCUSPOCUS_URL:-}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
     ports:
@@ -14,27 +50,39 @@ services:
       DATA_DIR: /data
       ALLOW_DEBUG: "1"
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production-use-a-long-random-string}
+      DATABASE_URL: postgres://${POSTGRES_USER:-projects}:${POSTGRES_PASSWORD:-projects}@postgres:5432/${POSTGRES_DB:-projects}
+      REDIS_URL: redis://redis:6379
       NEXT_PUBLIC_HOCUSPOCUS_URL: ${NEXT_PUBLIC_HOCUSPOCUS_URL:-}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
     volumes:
-      - projects-data:/data
+      - uploads-data:/data
     depends_on:
-      - collab
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      collab:
+        condition: service_started
     restart: unless-stopped
 
   collab:
     build:
       context: .
       dockerfile: docker/Dockerfile.collab
-    # Expose only internally; Coolify proxy will route /collab → this service
     expose:
       - "1235"
     environment:
       HOCUSPOCUS_PORT: "1235"
-      DATA_DIR: /data
-    volumes:
-      - projects-data:/data
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgres://${POSTGRES_USER:-projects}:${POSTGRES_PASSWORD:-projects}@postgres:5432/${POSTGRES_DB:-projects}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  projects-data:
+  postgres-data:
+  redis-data:
+  uploads-data:

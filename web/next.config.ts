@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  serverExternalPackages: ["better-sqlite3"],
+  // postgres.js is pure JS; no native package needed
   experimental: {
     serverActions: {
       bodySizeLimit: "2mb",

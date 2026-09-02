@@ -16,7 +16,7 @@ export default async function SearchPage({ searchParams }: Props) {
   let usedFts = false;
 
   if (query) {
-    const ftsHits = searchProjectsFts(query, 40);
+    const ftsHits = await searchProjectsFts(query, 40);
     if (ftsHits.length > 0) {
       usedFts = true;
       const ids = ftsHits.map((h) => h.projectId);
@@ -25,12 +25,12 @@ export default async function SearchPage({ searchParams }: Props) {
         .from(projects)
         .where(inArray(projects.id, ids));
       const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
-      // FTS rank is lower = better in SQLite FTS5
+      // Postgres ts_rank: higher = better
       results = ftsHits
-        .map((h, i) => {
+        .map((h) => {
           const p = byId[h.projectId];
           if (!p || p.visibility !== "public") return null;
-          return { ...p, score: 1000 - i };
+          return { ...p, score: h.rank * 1000 };
         })
         .filter(Boolean) as (typeof projects.$inferSelect & { score: number })[];
     } else {
@@ -78,7 +78,7 @@ export default async function SearchPage({ searchParams }: Props) {
         <p className="text-sm text-[var(--hq-muted)] mb-4">
           {results.length} result{results.length !== 1 ? "s" : ""} for &ldquo;
           {query}&rdquo;
-          {usedFts ? " · FTS5" : ""}
+          {usedFts ? " · PostgreSQL FTS" : ""}
         </p>
       )}
 

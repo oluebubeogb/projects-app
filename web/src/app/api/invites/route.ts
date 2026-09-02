@@ -183,7 +183,7 @@ export async function PATCH(req: NextRequest) {
 
     await db
       .update(invites)
-      .set({ acceptedAt: Math.floor(Date.now() / 1000) })
+      .set({ acceptedAt: new Date() })
       .where(eq(invites.id, invite.id));
 
     const proj = await db

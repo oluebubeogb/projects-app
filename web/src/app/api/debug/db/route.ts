@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, dbHealth } from "@/lib/db";
 import { projects, users, projectMembers } from "@/lib/db/schema";
-import { sql } from "drizzle-orm";
+import { sql, count } from "drizzle-orm";
 import path from "path";
 import fs from "fs";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Always available diagnostics.
- * Optional key: ?key=projects-debug  (or set DEBUG_KEY env)
- * In production without key, still returns limited info if ALLOW_DEBUG=1
- */
 export async function GET(req: NextRequest) {
   const key = req.nextUrl.searchParams.get("key");
   const expected = process.env.DEBUG_KEY || "projects-debug";
@@ -31,10 +26,6 @@ export async function GET(req: NextRequest) {
   }
 
   const dataDir = process.env.DATA_DIR || path.join(process.cwd(), "data");
-  const dbPath = path.join(dataDir, "projects.db");
-
-  let dbFileExists = false;
-  let dbFileSize = 0;
   let dataDirExists = false;
   let dataDirWritable = false;
   let dataDirListing: string[] = [];
@@ -42,95 +33,73 @@ export async function GET(req: NextRequest) {
   try {
     dataDirExists = fs.existsSync(dataDir);
     if (dataDirExists) {
-      dataDirListing = fs.readdirSync(dataDir).slice(0, 20);
+      dataDirListing = fs.readdirSync(dataDir).slice(0, 30);
       try {
-        const testFile = path.join(dataDir, ".write-test");
-        fs.writeFileSync(testFile, "ok");
-        fs.unlinkSync(testFile);
+        fs.accessSync(dataDir, fs.constants.W_OK);
         dataDirWritable = true;
       } catch {
         dataDirWritable = false;
       }
     }
-    dbFileExists = fs.existsSync(dbPath);
-    if (dbFileExists) {
-      dbFileSize = fs.statSync(dbPath).size;
-    }
-  } catch (e) {
-    // ignore fs errors, report below
+  } catch {
+    /* ignore */
   }
 
-  let allProjects: {
-    id: string;
-    slug: string;
-    title: string;
-    visibility: string;
-    ownerId: string;
-  }[] = [];
+  let canQueryDb = false;
+  let dbQueryError: string | null = null;
   let userCount = 0;
   let memberCount = 0;
-  let dbQueryError: string | null = null;
+  let allProjects: { id: string; slug: string; title: string }[] = [];
 
   try {
-    allProjects = await db
-      .select({
-        id: projects.id,
-        slug: projects.slug,
-        title: projects.title,
-        visibility: projects.visibility,
-        ownerId: projects.ownerId,
-      })
-      .from(projects)
-      .limit(50);
-    userCount = (await db.select({ c: sql<number>`count(*)` }).from(users))[0]
-      ?.c as number;
-    memberCount = (
-      await db.select({ c: sql<number>`count(*)` }).from(projectMembers)
-    )[0]?.c as number;
+    canQueryDb = await dbHealth();
+    if (canQueryDb) {
+      const [u] = await db.select({ c: count() }).from(users);
+      userCount = u.c;
+      const [m] = await db.select({ c: count() }).from(projectMembers);
+      memberCount = m.c;
+      allProjects = await db
+        .select({
+          id: projects.id,
+          slug: projects.slug,
+          title: projects.title,
+        })
+        .from(projects)
+        .limit(50);
+    }
   } catch (e) {
     dbQueryError = e instanceof Error ? e.message : String(e);
   }
 
   const checks = {
+    engine: "postgresql",
+    DATABASE_URL_set: Boolean(process.env.DATABASE_URL),
+    REDIS_URL_set: Boolean(process.env.REDIS_URL),
     DATA_DIR_set: Boolean(process.env.DATA_DIR),
-    DATA_DIR_is_data: process.env.DATA_DIR === "/data",
     dataDirExists,
     dataDirWritable,
-    dbFileExists,
-    dbFileNonEmpty: dbFileSize > 0,
-    canQueryDb: !dbQueryError,
+    canQueryDb,
     hasUsers: userCount > 0,
     hasProjects: allProjects.length > 0,
-    JWT_SECRET_set: Boolean(
-      process.env.JWT_SECRET &&
-        process.env.JWT_SECRET !== "change-me-in-production" &&
-        process.env.JWT_SECRET !==
-          "change-me-in-production-use-a-long-random-string"
-    ),
-    NEXT_PUBLIC_HOCUSPOCUS_URL: process.env.NEXT_PUBLIC_HOCUSPOCUS_URL || null,
+    JWT_SECRET_set:
+      Boolean(process.env.JWT_SECRET) &&
+      process.env.JWT_SECRET !== "change-me-to-a-long-random-string" &&
+      process.env.JWT_SECRET !== "change-me-in-production-use-a-long-random-string",
   };
 
   const problems: string[] = [];
-  if (!checks.DATA_DIR_set)
-    problems.push("DATA_DIR env not set — defaulting to cwd/data (may not be a volume)");
-  if (!checks.dataDirExists)
-    problems.push(`data directory missing: ${dataDir}`);
-  if (!checks.dataDirWritable)
-    problems.push(`data directory not writable: ${dataDir}`);
-  if (!checks.dbFileExists)
-    problems.push(`SQLite file missing: ${dbPath} — no DB created yet or wrong path`);
-  if (checks.dbFileExists && !checks.dbFileNonEmpty)
-    problems.push("SQLite file is empty (0 bytes)");
-  if (dbQueryError)
-    problems.push(`DB query failed: ${dbQueryError}`);
+  if (!checks.DATABASE_URL_set)
+    problems.push("DATABASE_URL env not set");
+  if (!checks.canQueryDb)
+    problems.push(`Cannot query PostgreSQL${dbQueryError ? `: ${dbQueryError}` : ""}`);
   if (checks.canQueryDb && !checks.hasUsers)
-    problems.push("No users in DB — register may have failed or different DB file");
+    problems.push("No users in DB — register may have failed");
   if (checks.canQueryDb && !checks.hasProjects)
-    problems.push(
-      "No projects in DB — create never wrote, or writes go to a different DATA_DIR"
-    );
+    problems.push("No projects in DB");
   if (!checks.JWT_SECRET_set)
     problems.push("JWT_SECRET is missing or still the default placeholder");
+  if (!checks.dataDirWritable)
+    problems.push("DATA_DIR is not writable (media uploads will fail)");
 
   return NextResponse.json({
     ok: problems.length === 0,
@@ -138,10 +107,8 @@ export async function GET(req: NextRequest) {
     checks,
     paths: {
       dataDir,
-      dbPath,
       cwd: process.cwd(),
       dataDirListing,
-      dbFileSize,
     },
     counts: {
       users: userCount,
@@ -152,6 +119,10 @@ export async function GET(req: NextRequest) {
     env: {
       NODE_ENV: process.env.NODE_ENV,
       DATA_DIR: process.env.DATA_DIR || null,
+      DATABASE_URL: process.env.DATABASE_URL
+        ? process.env.DATABASE_URL.replace(/:[^:@]+@/, ":****@")
+        : null,
+      REDIS_URL: process.env.REDIS_URL || null,
       ALLOW_DEBUG: process.env.ALLOW_DEBUG || null,
       HOCUSPOCUS_URL: process.env.NEXT_PUBLIC_HOCUSPOCUS_URL || null,
     },
