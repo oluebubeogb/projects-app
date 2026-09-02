@@ -219,5 +219,6 @@ export function ensureMigrated() {
 }
 
 if (typeof window === "undefined") {
-  ensureMigrated();
+  // Non-blocking: server can start even if Postgres is still coming up
+  ensureMigrated().catch((e) => console.error("[db] background migrate failed", e));
 }

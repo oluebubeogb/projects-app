@@ -7,7 +7,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-projects}
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    # Internal only — do not publish 5432 on the host (Coolify / other apps)
     expose:
       - "5432"
     healthcheck:
@@ -22,7 +21,6 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis-data:/data
-    # Internal only — do not publish 6379 on the host
     expose:
       - "6379"
     healthcheck:
@@ -39,8 +37,9 @@ services:
       args:
         NEXT_PUBLIC_HOCUSPOCUS_URL: ${NEXT_PUBLIC_HOCUSPOCUS_URL:-}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
-    ports:
-      - "3000:3000"
+    # Coolify proxies to this container port — do not bind host 3000
+    expose:
+      - "3000"
     environment:
       NODE_ENV: production
       DATA_DIR: /data
