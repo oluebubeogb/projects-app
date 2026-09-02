@@ -6,8 +6,8 @@ RUN npm install --omit=dev
 
 COPY collab/ ./
 
-ENV HOCUSPOCUS_PORT=1235
+ENV HOCUSPOCUS_PORT=1236
 ENV NODE_ENV=production
 
-EXPOSE 1235
+EXPOSE 1236
 CMD ["npx", "tsx", "src/server.ts"]

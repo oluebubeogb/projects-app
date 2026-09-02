@@ -12,7 +12,7 @@ if (!fs.existsSync(dataDir)) {
 
 const DATABASE_URL =
   process.env.DATABASE_URL ||
-  "postgresql://projects:projects@localhost:5432/projects";
+  "postgresql://projects:projects@localhost:5433/projects";
 
 const globalForDb = globalThis as unknown as {
   __projectsPgPool?: Pool;

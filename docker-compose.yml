@@ -5,12 +5,14 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-projects}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-projects}
       POSTGRES_DB: ${POSTGRES_DB:-projects}
+      PGPORT: "5433"
+    command: ["postgres", "-p", "5433"]
     volumes:
       - postgres-data:/var/lib/postgresql/data
     expose:
-      - "5432"
+      - "5433"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-projects} -d ${POSTGRES_DB:-projects}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-projects} -d ${POSTGRES_DB:-projects} -p 5433"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -18,13 +20,13 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--port", "6380"]
     volumes:
       - redis-data:/data
     expose:
-      - "6379"
+      - "6380"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-p", "6380", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -37,18 +39,19 @@ services:
       args:
         NEXT_PUBLIC_HOCUSPOCUS_URL: ${NEXT_PUBLIC_HOCUSPOCUS_URL:-}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
-    # Coolify proxies to this container port — do not bind host 3000
+    # Coolify proxies to this container port — do not bind host 3010
     expose:
-      - "3000"
+      - "3010"
     environment:
       NODE_ENV: production
       DATA_DIR: /data
       ALLOW_DEBUG: "1"
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production-use-a-long-random-string}
-      DATABASE_URL: ${DATABASE_URL:-postgresql://projects:projects@postgres:5432/projects}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://projects:projects@postgres:5433/projects}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6380}
       NEXT_PUBLIC_HOCUSPOCUS_URL: ${NEXT_PUBLIC_HOCUSPOCUS_URL:-}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
+      PORT: "3010"
     volumes:
       - projects-data:/data
     depends_on:
@@ -65,11 +68,11 @@ services:
       context: .
       dockerfile: docker/Dockerfile.collab
     expose:
-      - "1235"
+      - "1236"
     environment:
-      HOCUSPOCUS_PORT: "1235"
-      DATABASE_URL: ${DATABASE_URL:-postgresql://projects:projects@postgres:5432/projects}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      HOCUSPOCUS_PORT: "1236"
+      DATABASE_URL: ${DATABASE_URL:-postgresql://projects:projects@postgres:5433/projects}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6380}
     depends_on:
       postgres:
         condition: service_healthy

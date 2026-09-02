@@ -4,11 +4,11 @@ import { Logger } from "@hocuspocus/extension-logger";
 import { Redis } from "@hocuspocus/extension-redis";
 import { Pool } from "pg";
 
-const PORT = Number(process.env.HOCUSPOCUS_PORT || 1235);
+const PORT = Number(process.env.HOCUSPOCUS_PORT || 1236);
 const DATABASE_URL =
   process.env.DATABASE_URL ||
-  "postgresql://projects:projects@localhost:5432/projects";
-const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+  "postgresql://projects:projects@localhost:5433/projects";
+const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6380";
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
@@ -20,11 +20,11 @@ function parseRedisUrl(url: string): { host: string; port: number; password?: st
     const u = new URL(url);
     return {
       host: u.hostname || "localhost",
-      port: Number(u.port) || 6379,
+      port: Number(u.port) || 6380,
       password: u.password || process.env.REDIS_PASSWORD || undefined,
     };
   } catch {
-    return { host: "localhost", port: 6379 };
+    return { host: "localhost", port: 6380 };
   }
 }
 

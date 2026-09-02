@@ -87,7 +87,7 @@ export function CollaborativeEditor({
       return process.env.NEXT_PUBLIC_HOCUSPOCUS_URL;
     }
 
-    // 2. Same-origin path — works with Coolify path proxy /collab → collab:1235
+    // 2. Same-origin path — works with Coolify path proxy /collab → collab:1236
     if (typeof window !== "undefined") {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const candidate = `${protocol}//${window.location.host}/collab`;
@@ -96,7 +96,7 @@ export function CollaborativeEditor({
     }
 
     // 3. Local dev fallback
-    return "ws://localhost:1235";
+    return "ws://localhost:1236";
   }, []);
 
   // Create provider once; stable deps

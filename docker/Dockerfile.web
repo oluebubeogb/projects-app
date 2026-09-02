@@ -22,7 +22,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV PORT=3000
+ENV PORT=3010
 ENV HOSTNAME=0.0.0.0
 
 COPY --from=builder /app/public ./public
@@ -36,5 +36,5 @@ RUN npm install --omit=dev pg && rm -f package.json package-lock.json
 RUN mkdir -p /data
 ENV DATA_DIR=/data
 
-EXPOSE 3000
+EXPOSE 3010
 CMD ["node", "server.js"]

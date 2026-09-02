@@ -7,9 +7,9 @@ Real-time collaborative workspaces.
 ## Architecture (same-origin)
 
 ```
-Browser ──HTTP──► Next.js (web :3000)
+Browser ──HTTP──► Next.js (web :3010)
    │
-   └──WebSocket──► /collab  ──proxy──► Hocuspocus (collab :1235)
+   └──WebSocket──► /collab  ──proxy──► Hocuspocus (collab :1236)
                            │
               ┌────────────┴────────────┐
               ▼                         ▼
@@ -45,8 +45,8 @@ npm run install:all
 npm run dev
 ```
 
-- App: http://localhost:3000  
-- Collab WS: ws://localhost:1235  
+- App: http://localhost:3010  
+- Collab WS: ws://localhost:1236  
 
 Tables are created automatically on first start (web + collab).
 
@@ -56,8 +56,8 @@ Tables are created automatically on first start (web + collab).
 
 | Variable | Purpose |
 |----------|---------|
-| `DATABASE_URL` | `postgresql://user:pass@host:5432/db` |
-| `REDIS_URL` | `redis://host:6379` (Hocuspocus scaling) |
+| `DATABASE_URL` | `postgresql://user:pass@host:5433/db` |
+| `REDIS_URL` | `redis://host:6380` (Hocuspocus scaling) |
 | `JWT_SECRET` | Long random secret for auth cookies |
 | `DATA_DIR` | Media uploads directory (default `./web/data` or `/data` in Docker) |
 | `NEXT_PUBLIC_HOCUSPOCUS_URL` | Leave empty for same-origin `/collab` |
@@ -71,12 +71,12 @@ Tables are created automatically on first start (web + collab).
 docker compose up -d --build
 ```
 
-Services: **postgres**, **redis**, **web** (3000), **collab** (internal 1235).
+Services: **postgres**, **redis**, **web** (3010), **collab** (internal 1236).
 
 ### Coolify / reverse proxy
 
-- **web**: map domain → port 3000  
-- **collab**: map `https://your-domain/collab` → container port **1235**  
+- **web**: map domain → port 3010  
+- **collab**: map `https://your-domain/collab` → container port **1236**  
 - Enable WebSockets on the proxy  
 - Set `JWT_SECRET`, leave `NEXT_PUBLIC_*` empty for same-origin
 
@@ -116,7 +116,7 @@ UPDATE users SET role = 'admin' WHERE email = 'you@example.com';
 
 | Symptom | Check |
 |---------|-------|
-| Forever “Connecting…” | Proxy path `/collab` → collab:1235; WebSockets on |
+| Forever “Connecting…” | Proxy path `/collab` → collab:1236; WebSockets on |
 | DB errors on boot | `DATABASE_URL`, Postgres healthy, user/db exist |
 | Collab not syncing across instances | `REDIS_URL` reachable from all collab containers |
 | Invite shows localhost | Leave `NEXT_PUBLIC_APP_URL` empty |
