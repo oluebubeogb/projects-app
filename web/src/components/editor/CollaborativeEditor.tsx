@@ -43,7 +43,6 @@ import {
   Unlink,
   Video,
   Info,
-  Table as TableIcon,
   SeparatorHorizontal,
   FileCode,
   Type,
@@ -642,10 +641,10 @@ export function CollaborativeEditor({
             )}
             {toolGroup === "align" && (
               <>
-                <ToolbarBtn cmd="alignLeft" icon={AlignLeft} label="Align left" active={editor?.isActive({ textAlign: "left" })} />
-                <ToolbarBtn cmd="alignCenter" icon={AlignCenter} label="Align center" active={editor?.isActive({ textAlign: "center" })} />
-                <ToolbarBtn cmd="alignRight" icon={AlignRight} label="Align right" active={editor?.isActive({ textAlign: "right" })} />
-                <ToolbarBtn cmd="alignJustify" icon={AlignJustify} label="Justify" active={editor?.isActive({ textAlign: "justify" })} />
+                <ToolbarBtn cmd="alignLeft" icon={AlignLeft} label="Align left" active={!!editor?.isActive({ textAlign: "left" })} />
+                <ToolbarBtn cmd="alignCenter" icon={AlignCenter} label="Align center" active={!!editor?.isActive({ textAlign: "center" })} />
+                <ToolbarBtn cmd="alignRight" icon={AlignRight} label="Align right" active={!!editor?.isActive({ textAlign: "right" })} />
+                <ToolbarBtn cmd="alignJustify" icon={AlignJustify} label="Justify" active={!!editor?.isActive({ textAlign: "justify" })} />
               </>
             )}
             {toolGroup === "insert" && (
