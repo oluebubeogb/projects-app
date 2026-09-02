@@ -11,7 +11,7 @@ type N = {
   title: string;
   body: string | null;
   link: string | null;
-  readAt: number | null;
+  readAt: string | number | Date | null;
   createdAt: string | number | Date;
 };
 
@@ -55,7 +55,7 @@ export function NotificationBell() {
     });
     setUnread(0);
     setItems((prev) =>
-      prev.map((n) => ({ ...n, readAt: n.readAt || Math.floor(Date.now() / 1000) }))
+      prev.map((n) => ({ ...n, readAt: n.readAt || new Date().toISOString() }))
     );
   }
 
@@ -67,7 +67,7 @@ export function NotificationBell() {
     });
     setItems((prev) =>
       prev.map((n) =>
-        n.id === id ? { ...n, readAt: Math.floor(Date.now() / 1000) } : n
+        n.id === id ? { ...n, readAt: new Date().toISOString() } : n
       )
     );
     setUnread((u) => Math.max(0, u - 1));

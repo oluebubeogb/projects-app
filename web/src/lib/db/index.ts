@@ -1,7 +1,9 @@
-import { drizzle } from "drizzle-orm/postgres-js";
+import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { sql } from "drizzle-orm";
 import * as schema from "./schema";
+
+type Db = PostgresJsDatabase<typeof schema>;
 
 const connectionString =
   process.env.DATABASE_URL ||
@@ -9,23 +11,43 @@ const connectionString =
 
 const globalForDb = globalThis as unknown as {
   __pgClient?: ReturnType<typeof postgres>;
+  __db?: Db;
   __dbLogged?: boolean;
 };
 
-const client =
-  globalForDb.__pgClient ??
-  postgres(connectionString, {
-    max: 20,
-    idle_timeout: 20,
-    connect_timeout: 10,
-    prepare: false, // better for serverless / many short queries
-  });
-
-if (process.env.NODE_ENV !== "production") {
-  globalForDb.__pgClient = client;
+function getClient() {
+  if (!globalForDb.__pgClient) {
+    globalForDb.__pgClient = postgres(connectionString, {
+      max: 20,
+      idle_timeout: 20,
+      connect_timeout: 10,
+      prepare: false,
+    });
+  }
+  return globalForDb.__pgClient;
 }
 
-export const db = drizzle(client, { schema });
+function getDb(): Db {
+  if (!globalForDb.__db) {
+    globalForDb.__db = drizzle(getClient(), { schema });
+    if (!globalForDb.__dbLogged) {
+      console.log(
+        `[db] using PostgreSQL (${connectionString.replace(/:[^:@]+@/, ":****@")})`
+      );
+      globalForDb.__dbLogged = true;
+    }
+  }
+  return globalForDb.__db;
+}
+
+/** Lazy proxy so importing this module during `next build` does not open a connection */
+export const db = new Proxy({} as Db, {
+  get(_target, prop, receiver) {
+    const real = getDb();
+    const value = Reflect.get(real, prop, receiver);
+    return typeof value === "function" ? value.bind(real) : value;
+  },
+});
 
 /** Full-text search helper using Postgres tsvector */
 export async function upsertProjectFts(
@@ -35,7 +57,6 @@ export async function upsertProjectFts(
   body: string
 ) {
   try {
-    // Keep search_text column in sync for simple ILIKE fallback + ranking
     const searchText = [title, description, body].filter(Boolean).join(" ");
     await db.execute(
       sql`UPDATE projects SET search_text = ${searchText}, updated_at = now() WHERE id = ${projectId}`
@@ -54,7 +75,6 @@ export async function searchProjectsFts(
     const q = query.trim();
     if (!q) return [];
 
-    // Use plainto_tsquery for user-friendly input + ranking
     const rows = await db.execute<{ project_id: string; rank: number }>(sql`
       SELECT id AS project_id,
              ts_rank(
@@ -89,9 +109,4 @@ export async function dbHealth() {
   } catch {
     return false;
   }
-}
-
-if (!globalForDb.__dbLogged) {
-  console.log(`[db] using PostgreSQL (${connectionString.replace(/:[^:@]+@/, ":****@")})`);
-  globalForDb.__dbLogged = true;
 }

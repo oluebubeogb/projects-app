@@ -3,12 +3,25 @@ import {
   text,
   integer,
   timestamp,
-  bytea,
   uniqueIndex,
   index,
   pgEnum,
+  customType,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+
+/** Safe bytea for drizzle versions that don't export bytea */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+  toDriver(value: Buffer) {
+    return value;
+  },
+  fromDriver(value: unknown) {
+    return Buffer.isBuffer(value) ? value : Buffer.from(value as ArrayBuffer);
+  },
+});
 
 export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
 export const visibilityEnum = pgEnum("visibility", ["public", "private"]);
@@ -157,7 +170,7 @@ export const commits = pgTable(
   (t) => [index("idx_commits_project").on(t.projectId)]
 );
 
-// Optional fallback; primary Yjs state lives in Redis for performance
+// Optional fallback; primary Yjs state lives in Redis
 export const documents = pgTable("documents", {
   name: text("name").primaryKey(),
   data: bytea("data").notNull(),
