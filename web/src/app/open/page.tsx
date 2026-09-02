@@ -156,7 +156,7 @@ export default async function OpenProjectPage({ searchParams }: Props) {
       ) : canReadPublic && project.latestSnapshotHtml ? (
         <div className="border border-[var(--hq-border)] rounded-[var(--hq-radius)] bg-[var(--hq-surface)] overflow-hidden">
           <div className="px-3 py-2 border-b border-[var(--hq-border)] text-xs text-[var(--hq-muted)] flex items-center justify-between bg-[var(--hq-sidebar)]">
-            <span>Read-only · latest snapshot</span>
+            <span>Read-only · Latest snapshot ·</span>
             {!user && (
               <Link
                 href={`/login?next=/open?slug=${encodeURIComponent(slug)}`}

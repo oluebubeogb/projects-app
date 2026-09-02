@@ -186,7 +186,7 @@ export default async function ProjectReadOnlyPage({
       <div className="border border-[var(--hq-border)] rounded-[var(--hq-radius)] bg-[var(--hq-surface)] overflow-hidden">
         <div className="px-3 py-2 border-b border-[var(--hq-border)] text-xs text-[var(--hq-muted)] flex flex-wrap items-center gap-2 justify-between bg-[var(--hq-sidebar)]">
           <div className="flex items-center gap-2 flex-wrap">
-            <span>Read-only · latest snapshot</span>
+            <span>Read-only · Latest snapshot ·</span>
             {pendingInvite && (
               <AcceptInviteButton token={pendingInvite.token} />
             )}
