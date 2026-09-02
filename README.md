@@ -1,8 +1,8 @@
-# Projects v3
+# Projects (PostgreSQL + Redis)
 
 Real-time collaborative workspaces.  
 **Stack:** Next.js 15 · TipTap · Yjs · Hocuspocus · **PostgreSQL** · **Redis**  
-**Domain:** `project.collab.name.ng`
+**Domain example:** `project.collab.name.ng`
 
 ## Architecture (same-origin)
 
@@ -11,145 +11,74 @@ Browser ──HTTP──► Next.js (web :3000)
    │
    └──WebSocket──► /collab  ──proxy──► Hocuspocus (collab :1235)
                            │
-                    ┌──────┴──────┐
-                    │             │
-               PostgreSQL      Redis
-           (users, projects,  (Yjs docs,
-            commits, FTS…)     presence,
-                               multi-instance)
+              ┌────────────┴────────────┐
+              ▼                         ▼
+         PostgreSQL                  Redis
+      (app data + Yjs docs)     (multi-instance pub/sub)
 ```
 
 One public domain. WebSocket lives at `wss://your-domain/collab`.
 
-### Why PostgreSQL + Redis?
-
-| Concern | SQLite (old) | Postgres + Redis (now) |
-|---------|--------------|------------------------|
-| Concurrent writes | Limited (WAL) | Excellent |
-| Horizontal scaling | Single file | Multiple web/collab replicas |
-| Full-text search | FTS5 | Built-in `tsvector` + GIN |
-| Real-time docs | Shared SQLite file | Redis (low latency) + optional durable Postgres dual-write |
-| Backups / ops | File copy | Standard Postgres tooling + Redis AOF |
+Media files still live on a shared volume under `DATA_DIR` (default `/data`).
 
 ---
 
 ## Local development
 
+### 1. Start Postgres + Redis
+
 ```bash
-# Start Postgres + Redis (Docker)
 docker compose up -d postgres redis
-
-# From repo root
-cp .env.example .env
-# edit DATABASE_URL / REDIS_URL if needed
-
-npm run install:all
-
-# Migrate schema
-cd web && npm run db:migrate && cd ..
-
-# Terminal 1 — collab server
-cd collab && npm run dev
-# → ws://localhost:1235
-
-# Terminal 2 — web
-cd web && npm run dev
-# → http://localhost:3000
 ```
 
-Or from root:
+Or use your own instances and set `DATABASE_URL` / `REDIS_URL`.
+
+### 2. Install & run
 
 ```bash
+cp .env.example .env
+# edit JWT_SECRET, DATABASE_URL, REDIS_URL if needed
+
 npm run install:all
+
+# Terminal — both web + collab
 npm run dev
 ```
 
-Env (see `.env.example`):
+- App: http://localhost:3000  
+- Collab WS: ws://localhost:1235  
 
-```env
-JWT_SECRET=your-long-secret
-DATABASE_URL=postgres://projects:projects@localhost:5432/projects
-REDIS_URL=redis://localhost:6379
-DATA_DIR=./web/data
-HOCUSPOCUS_PORT=1235
-# leave NEXT_PUBLIC_* empty for same-origin
-```
+Tables are created automatically on first start (web + collab).
 
 ---
 
-## Deploy on Coolify (fresh)
+## Environment
 
-### 1. Push this repo to GitHub
-
-### 2. Create a **Docker Compose** resource in Coolify
-
-- Connect the repo
-- Build pack: Docker Compose
-- Compose file: `docker-compose.yml`
-
-### 3. Environment variables
-
-```env
-JWT_SECRET=<strong-random-string>
-POSTGRES_USER=projects
-POSTGRES_PASSWORD=<strong-db-password>
-POSTGRES_DB=projects
-# Leave these empty for same-origin (recommended)
-NEXT_PUBLIC_HOCUSPOCUS_URL=
-NEXT_PUBLIC_APP_URL=
-```
-
-`DATABASE_URL` and `REDIS_URL` are constructed automatically inside the compose file.
-
-### 4. Domains (critical)
-
-In Coolify, after the first parse of the compose file you will see services: **web**, **collab**, **postgres**, **redis**.
-
-**web service**
-```
-https://project.collab.name.ng
-```
-
-**collab service**
-```
-https://project.collab.name.ng/collab:1235
-```
-
-The `:1235` tells Coolify “proxy this path to container port 1235”.  
-The path `/collab` matches what the client connects to.
-
-### 5. DNS
-
-Only one record needed:
-
-| Type | Name | Target |
-|------|------|--------|
-| A or CNAME | `project` (or `@`) | your VPS / Coolify IP |
-
-### 6. Cloudflare (if used)
-
-- Proxy: Proxied (orange cloud) is fine
-- Network → **WebSockets = On**
-- SSL/TLS → **Full**
-
-### 7. Deploy
-
-Click Deploy. After it finishes:
-
-- Open `https://project.collab.name.ng`
-- Open an editor
-- Browser console should show connected status
-
-On first boot the web process uses the Postgres schema (run `npm run db:migrate` inside the web container if tables are missing, or add an entrypoint).
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | `postgresql://user:pass@host:5432/db` |
+| `REDIS_URL` | `redis://host:6379` (Hocuspocus scaling) |
+| `JWT_SECRET` | Long random secret for auth cookies |
+| `DATA_DIR` | Media uploads directory (default `./web/data` or `/data` in Docker) |
+| `NEXT_PUBLIC_HOCUSPOCUS_URL` | Leave empty for same-origin `/collab` |
+| `NEXT_PUBLIC_APP_URL` | Leave empty in production (uses request host) |
 
 ---
 
-## Migration notes (from SQLite)
+## Deploy with Docker Compose
 
-1. Export data from old `projects.db` if you need it.
-2. New installs start clean on Postgres.
-3. Yjs documents live primarily in **Redis** (AOF persistence enabled). Collab also dual-writes to the `documents` table in Postgres when `DATABASE_URL` is set — best of both worlds for durability + multi-instance.
-4. Media files remain on the `uploads-data` volume (`DATA_DIR`).
+```bash
+docker compose up -d --build
+```
+
+Services: **postgres**, **redis**, **web** (3000), **collab** (internal 1235).
+
+### Coolify / reverse proxy
+
+- **web**: map domain → port 3000  
+- **collab**: map `https://your-domain/collab` → container port **1235**  
+- Enable WebSockets on the proxy  
+- Set `JWT_SECRET`, leave `NEXT_PUBLIC_*` empty for same-origin
 
 ---
 
@@ -162,12 +91,32 @@ On first boot the web process uses the Postgres schema (run `npm run db:migrate`
 | Live collaborative editor (TipTap + Yjs + Hocuspocus) | ✅ |
 | Presence + colored cursors | ✅ |
 | Same-origin WebSocket | ✅ |
-| Public search (Postgres FTS) | ✅ |
+| PostgreSQL persistence + full-text search | ✅ |
+| Redis for multi-instance collab | ✅ |
+| Public search | ✅ |
 | Join requests + approve | ✅ |
 | Invite by email | ✅ |
 | Commit history UI | ✅ |
 | Public read-only from latest snapshot | ✅ |
 | Media library | ✅ |
-| Dashboard | ✅ |
+| Dashboard + admin | ✅ |
 | Coolify / Docker ready | ✅ |
-| PostgreSQL + Redis | ✅ |
+
+---
+
+## Promote an admin
+
+```sql
+UPDATE users SET role = 'admin' WHERE email = 'you@example.com';
+```
+
+---
+
+## Troubleshooting
+
+| Symptom | Check |
+|---------|-------|
+| Forever “Connecting…” | Proxy path `/collab` → collab:1235; WebSockets on |
+| DB errors on boot | `DATABASE_URL`, Postgres healthy, user/db exist |
+| Collab not syncing across instances | `REDIS_URL` reachable from all collab containers |
+| Invite shows localhost | Leave `NEXT_PUBLIC_APP_URL` empty |
