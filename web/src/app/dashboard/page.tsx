@@ -55,7 +55,7 @@ export default async function DashboardPage() {
           {memberships.map(({ project, role }) => (
             <Link
               key={project.id}
-              href={`/open?slug=${encodeURIComponent(project.slug)}`}
+              href={`/project/${encodeURIComponent(project.slug)}`}
               className="block p-5 rounded-[var(--hq-radius)] border border-[var(--hq-border)] bg-[var(--hq-surface)] hover:border-[var(--hq-accent)] transition-colors shadow-[var(--shadow)]"
             >
               <div className="flex items-start justify-between gap-2 mb-2">

@@ -90,7 +90,7 @@ export default async function SearchPage({ searchParams }: Props) {
         {results.map((p) => (
           <Link
             key={p.id}
-            href={`/open?slug=${encodeURIComponent(p.slug)}`}
+            href={`/project/${encodeURIComponent(p.slug)}`}
             className="block p-4 rounded-[var(--hq-radius)] border border-[var(--hq-border)] bg-[var(--hq-surface)] hover:border-[var(--hq-accent)] transition-colors"
           >
             <h2 className="font-medium">{p.title}</h2>
