@@ -645,7 +645,7 @@ export function CollaborativeEditor({
       {/* Sticky chrome: status + toolbar */}
       <div className="editor-chrome">
         {/* Status bar */}
-        <div className="flex items-center justify-between px-3 py-2 text-xs text-[var(--hq-muted)]">
+        <div className="flex items-center justify-between px-3 py-1.5 text-xs text-[var(--hq-muted)]">
           <div className="flex items-center gap-2">
             <span
               className={cn(

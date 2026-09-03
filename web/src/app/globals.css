@@ -516,12 +516,12 @@ html[data-theme] header {
 
 .editor-shell-fullscreen {
   position: fixed !important;
-  inset: 0 !important;
+  inset: 12px !important;
   z-index: 9999 !important;
-  width: 100vw !important;
+  width: auto !important;
   max-width: none !important;
-  height: 100dvh !important;
-  min-height: 100dvh !important;
+  height: auto !important;
+  min-height: 0 !important;
   margin: 0 !important;
   border: 0 !important;
   border-radius: 0 !important;
@@ -547,7 +547,7 @@ html[data-theme] header {
   width: 100%;
   max-width: none;
   box-sizing: border-box;
-  padding: 0.4rem 3.7vw 5rem;
+  padding: 1rem 3.7vw 5rem;
 }
 
 /* Text size marks used by the Aa cycle control */
@@ -559,9 +559,9 @@ html[data-theme] header {
    wrapper around the project page. This removes the app header, sidebar,
    browser viewport constraints, and any transformed parent containment. */
 .editor-shell:fullscreen {
-  width: 100vw !important;
-  height: 100vh !important;
-  height: 100dvh !important;
+  width: auto !important;
+  height: auto !important;
+  min-height: 0 !important;
   max-width: none !important;
   margin: 0 !important;
   border: 0 !important;
@@ -591,5 +591,5 @@ html[data-theme] header {
   max-width: none;
   min-height: 100%;
   box-sizing: border-box;
-  padding: 0.4rem 4vw 5rem;
+  padding: 1rem 4vw 5rem;
 }
