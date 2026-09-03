@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+
 import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { projects, projectMembers, users } from "@/lib/db/schema";
@@ -11,6 +11,18 @@ export const dynamic = "force-dynamic";
 const PAGE_BOTTOM = 56;
 const DEFAULT_TEXT = "#1f2937";
 const DEFAULT_HEADING = "#111827";
+
+// PDF spacing controls. Edit these values to tune the generated document.
+// Values are line-height multipliers passed to PDFKit\'s moveDown().
+const PDF_SPACING = {
+  blockAfter: 2,      // Paragraphs and regular content blocks
+  headingAfter: 2,    // Space after h1/h2/h3
+  listBetween: 2,   // Space between list items
+  listAfter: 2,     // Space after a list
+  tableAfter: 2,      // Space after tables
+  quoteAfter: 2,      // Space after blockquotes
+  codeAfter: 2,       // Space after code blocks
+} as const;
 
 function decodeHtml(value: string): string {
   return value
@@ -243,7 +255,7 @@ function drawList(doc: PDFKit.PDFDocument, html: string, ordered: boolean) {
     index++;
   }
   // Keep the next non-list block from running into the list.
-  doc.moveDown(0.5);
+  doc.moveDown(PDF_SPACING.listAfter);
 }
 
 function formatDate(ts: number | null | undefined): string {
