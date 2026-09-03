@@ -220,7 +220,8 @@ function drawTable(doc: PDFKit.PDFDocument, html: string) {
     doc.x = left;
     doc.y = y + rowHeight;
   }
-  doc.moveDown(0.65);
+  // One full line-height after a table keeps the following block visually separated.
+  doc.moveDown(1);
   doc.x = left;
 }
 
@@ -237,9 +238,12 @@ function drawList(doc: PDFKit.PDFDocument, html: string, ordered: boolean) {
     doc.font("Helvetica").fontSize(11).fillColor(DEFAULT_TEXT).text(prefix, x, doc.y, { continued: true });
     drawStyledInline(doc, item[1], 11, { x: doc.x, y: doc.y, width });
     doc.x = x;
-    doc.moveDown(0.18);
+    // Half a line-height between list items keeps lists compact but readable.
+    doc.moveDown(0.5);
     index++;
   }
+  // Keep the next non-list block from running into the list.
+  doc.moveDown(0.5);
 }
 
 function formatDate(ts: number | null | undefined): string {
@@ -335,13 +339,13 @@ export async function GET(req: NextRequest) {
         const size = b.type === "h1" ? 20 : b.type === "h2" ? 16 : 13;
         const isFaq = /frequently asked questions/i.test(text);
         ensureSpace(doc, size + 18);
-        doc.moveDown(0.45);
         if (isFaq) {
           const w = doc.page.width - doc.page.margins.left - doc.page.margins.right;
           doc.save().fillColor("#ecfdf5").roundedRect(doc.page.margins.left, doc.y - 3, w, size + 12, 5).fill().restore();
         }
         doc.font("Helvetica-Bold").fontSize(size).fillColor(isFaq ? "#15803d" : cssColor(b.style, DEFAULT_HEADING)).text(text, { lineGap: 2 });
-        doc.moveDown(0.2);
+        // Full line-height after headings.
+        doc.moveDown(1);
       } else if (b.type === "blockquote") {
         const width = doc.page.width - doc.page.margins.left - doc.page.margins.right - 28;
         const h = Math.max(34, doc.heightOfString(text, { width, lineGap: 2 }) + 16);
@@ -352,7 +356,8 @@ export async function GET(req: NextRequest) {
         doc.save().fillColor("#14b8a6").rect(doc.page.margins.left, y, 4, h).fill().restore();
         drawStyledInline(doc, b.html, 10, { x: doc.page.margins.left + 14, y: y + 8, width, color: cssColor(b.style, "#4b5563") });
         doc.x = doc.page.margins.left;
-        doc.y = y + h + 8;
+        doc.y = y + h;
+        doc.moveDown(1);
       } else if (b.type === "pre") {
         const width = doc.page.width - doc.page.margins.left - doc.page.margins.right - 20;
         const h = Math.max(30, doc.heightOfString(text, { width, lineGap: 2 }) + 16);
@@ -362,12 +367,14 @@ export async function GET(req: NextRequest) {
         doc.save().fillColor("#f3f4f6").roundedRect(doc.page.margins.left, y, w, h, 5).fill().restore();
         doc.font("Courier").fontSize(8.5).fillColor(cssColor(b.style, DEFAULT_TEXT)).text(text, doc.page.margins.left + 10, y + 8, { width, lineGap: 2 });
         doc.x = doc.page.margins.left;
-        doc.y = y + h + 8;
+        doc.y = y + h;
+        doc.moveDown(1);
       } else {
         ensureSpace(doc, 20);
         drawStyledInline(doc, b.html, cssFontSize(b.style, 11), { x: doc.page.margins.left, y: doc.y, width: doc.page.width - doc.page.margins.left - doc.page.margins.right, color: cssColor(b.style, DEFAULT_TEXT) });
         doc.x = doc.page.margins.left;
-        doc.moveDown(0.25);
+        // One full line-height after paragraphs and other regular blocks.
+        doc.moveDown(1);
       }
     }
   }
