@@ -156,6 +156,90 @@ export async function migrate() {
       -- Full-text search vector on public project content
       ALTER TABLE projects ADD COLUMN IF NOT EXISTS search_vector tsvector;
       CREATE INDEX IF NOT EXISTS idx_projects_search_vector ON projects USING GIN (search_vector);
+
+      -- Profile fields
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT '';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS organization TEXT DEFAULT '';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS location TEXT DEFAULT '';
+      ALTER TABLE users ALTER COLUMN avatar_color SET DEFAULT '#5C5DE2';
+
+      -- Forums
+      CREATE TABLE IF NOT EXISTS forums (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        visibility TEXT NOT NULL DEFAULT 'public',
+        owner_id TEXT NOT NULL REFERENCES users(id),
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        created_at INTEGER NOT NULL DEFAULT (extract(epoch from now())::int),
+        updated_at INTEGER NOT NULL DEFAULT (extract(epoch from now())::int)
+      );
+      CREATE INDEX IF NOT EXISTS idx_forums_project ON forums(project_id);
+      CREATE INDEX IF NOT EXISTS idx_forums_owner ON forums(owner_id);
+
+      CREATE TABLE IF NOT EXISTS forum_members (
+        id TEXT PRIMARY KEY,
+        forum_id TEXT NOT NULL REFERENCES forums(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role TEXT NOT NULL DEFAULT 'member',
+        joined_at INTEGER NOT NULL DEFAULT (extract(epoch from now())::int),
+        UNIQUE(forum_id, user_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_forum_members_forum ON forum_members(forum_id);
+
+      CREATE TABLE IF NOT EXISTS forum_posts (
+        id TEXT PRIMARY KEY,
+        forum_id TEXT NOT NULL REFERENCES forums(id) ON DELETE CASCADE,
+        author_id TEXT NOT NULL REFERENCES users(id),
+        body TEXT NOT NULL DEFAULT '',
+        kind TEXT NOT NULL DEFAULT 'text',
+        media_path TEXT,
+        parent_id TEXT,
+        created_at INTEGER NOT NULL DEFAULT (extract(epoch from now())::int)
+      );
+      CREATE INDEX IF NOT EXISTS idx_forum_posts_forum ON forum_posts(forum_id);
+      CREATE INDEX IF NOT EXISTS idx_forum_posts_parent ON forum_posts(parent_id);
+
+      -- Direct messages
+      CREATE TABLE IF NOT EXISTS conversations (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL DEFAULT 'dm',
+        title TEXT DEFAULT '',
+        created_at INTEGER NOT NULL DEFAULT (extract(epoch from now())::int),
+        updated_at INTEGER NOT NULL DEFAULT (extract(epoch from now())::int)
+      );
+
+      CREATE TABLE IF NOT EXISTS conversation_members (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        last_read_at INTEGER,
+        UNIQUE(conversation_id, user_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_conv_members_user ON conversation_members(user_id);
+
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        author_id TEXT NOT NULL REFERENCES users(id),
+        body TEXT NOT NULL DEFAULT '',
+        kind TEXT NOT NULL DEFAULT 'text',
+        media_path TEXT,
+        created_at INTEGER NOT NULL DEFAULT (extract(epoch from now())::int)
+      );
+      CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id);
+
+      -- WebRTC signaling rooms (ephemeral call state)
+      CREATE TABLE IF NOT EXISTS call_rooms (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL DEFAULT 'dm',
+        context_id TEXT,
+        host_id TEXT NOT NULL REFERENCES users(id),
+        status TEXT NOT NULL DEFAULT 'open',
+        created_at INTEGER NOT NULL DEFAULT (extract(epoch from now())::int),
+        closed_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_call_rooms_context ON call_rooms(context_id);
     `);
   } finally {
     client.release();

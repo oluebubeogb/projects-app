@@ -31,9 +31,15 @@ export const users = pgTable("users", {
   /** unique handle: min 5 chars, letters, numbers, - _ */
   username: text("username").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
-  avatarColor: text("avatar_color").notNull().default("#2563eb"),
+  avatarColor: text("avatar_color").notNull().default("#5C5DE2"),
   /** optional profile picture path / url */
   avatarUrl: text("avatar_url"),
+  /** short bio shown on profile */
+  bio: text("bio").default(""),
+  /** optional organization / affiliation */
+  organization: text("organization").default(""),
+  /** optional location / university */
+  location: text("location").default(""),
   /** platform role: user | admin */
   role: text("role", { enum: ["user", "admin"] })
     .notNull()
@@ -205,6 +211,162 @@ export const notifications = pgTable(
   (t) => [index("idx_notifications_user").on(t.userId, t.createdAt)]
 );
 
+/* ---------- Forums & messaging ---------- */
+
+export const forums = pgTable(
+  "forums",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    description: text("description").default(""),
+    /** public | private */
+    visibility: text("visibility", { enum: ["public", "private"] })
+      .notNull()
+      .default("public"),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id),
+    /** optional linked project */
+    projectId: text("project_id").references(() => projects.id, {
+      onDelete: "set null",
+    }),
+    createdAt: integer("created_at")
+      .notNull()
+      .default(sql`extract(epoch from now())::int`),
+    updatedAt: integer("updated_at")
+      .notNull()
+      .default(sql`extract(epoch from now())::int`),
+  },
+  (t) => [index("idx_forums_project").on(t.projectId)]
+);
+
+export const forumMembers = pgTable(
+  "forum_members",
+  {
+    id: text("id").primaryKey(),
+    forumId: text("forum_id")
+      .notNull()
+      .references(() => forums.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["owner", "admin", "member"] })
+      .notNull()
+      .default("member"),
+    joinedAt: integer("joined_at")
+      .notNull()
+      .default(sql`extract(epoch from now())::int`),
+  },
+  (t) => [
+    uniqueIndex("forum_members_forum_user").on(t.forumId, t.userId),
+    index("idx_forum_members_forum").on(t.forumId),
+  ]
+);
+
+export const forumPosts = pgTable(
+  "forum_posts",
+  {
+    id: text("id").primaryKey(),
+    forumId: text("forum_id")
+      .notNull()
+      .references(() => forums.id, { onDelete: "cascade" }),
+    authorId: text("author_id")
+      .notNull()
+      .references(() => users.id),
+    body: text("body").notNull().default(""),
+    /** text | voice | system */
+    kind: text("kind", { enum: ["text", "voice", "system"] })
+      .notNull()
+      .default("text"),
+    /** path to webp image or audio */
+    mediaPath: text("media_path"),
+    parentId: text("parent_id"),
+    createdAt: integer("created_at")
+      .notNull()
+      .default(sql`extract(epoch from now())::int`),
+  },
+  (t) => [index("idx_forum_posts_forum").on(t.forumId)]
+);
+
+export const conversations = pgTable("conversations", {
+  id: text("id").primaryKey(),
+  /** dm | group */
+  kind: text("kind", { enum: ["dm", "group"] })
+    .notNull()
+    .default("dm"),
+  title: text("title").default(""),
+  createdAt: integer("created_at")
+    .notNull()
+    .default(sql`extract(epoch from now())::int`),
+  updatedAt: integer("updated_at")
+    .notNull()
+    .default(sql`extract(epoch from now())::int`),
+});
+
+export const conversationMembers = pgTable(
+  "conversation_members",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lastReadAt: integer("last_read_at"),
+  },
+  (t) => [
+    uniqueIndex("conv_members_conv_user").on(t.conversationId, t.userId),
+  ]
+);
+
+export const messages = pgTable(
+  "messages",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    authorId: text("author_id")
+      .notNull()
+      .references(() => users.id),
+    body: text("body").notNull().default(""),
+    /** text | voice | system */
+    kind: text("kind", { enum: ["text", "voice", "system"] })
+      .notNull()
+      .default("text"),
+    mediaPath: text("media_path"),
+    createdAt: integer("created_at")
+      .notNull()
+      .default(sql`extract(epoch from now())::int`),
+  },
+  (t) => [index("idx_messages_conv").on(t.conversationId)]
+);
+
+
+export const callRooms = pgTable(
+  "call_rooms",
+  {
+    id: text("id").primaryKey(),
+    /** dm | forum | project */
+    kind: text("kind", { enum: ["dm", "forum", "project"] })
+      .notNull()
+      .default("dm"),
+    contextId: text("context_id"),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => users.id),
+    status: text("status", { enum: ["open", "closed"] })
+      .notNull()
+      .default("open"),
+    createdAt: integer("created_at")
+      .notNull()
+      .default(sql`extract(epoch from now())::int`),
+    closedAt: integer("closed_at"),
+  },
+  (t) => [index("idx_call_rooms_context").on(t.contextId)]
+);
+
 export type User = typeof users.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type ProjectMember = typeof projectMembers.$inferSelect;
@@ -213,3 +375,9 @@ export type Invite = typeof invites.$inferSelect;
 export type Commit = typeof commits.$inferSelect;
 export type Media = typeof media.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
+export type Forum = typeof forums.$inferSelect;
+export type ForumMember = typeof forumMembers.$inferSelect;
+export type ForumPost = typeof forumPosts.$inferSelect;
+export type Conversation = typeof conversations.$inferSelect;
+export type Message = typeof messages.$inferSelect;
+export type CallRoom = typeof callRooms.$inferSelect;

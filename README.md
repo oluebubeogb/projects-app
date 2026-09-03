@@ -120,3 +120,13 @@ UPDATE users SET role = 'admin' WHERE email = 'you@example.com';
 | DB errors on boot | `DATABASE_URL`, Postgres healthy, user/db exist |
 | Collab not syncing across instances | `REDIS_URL` reachable from all collab containers |
 | Invite shows localhost | Leave `NEXT_PUBLIC_APP_URL` empty |
+
+
+---
+
+## Forums, messages & calls
+
+- **Forums** at `/forums` — create, post, voice notes; link from project sidebar (owner/admin).
+- **Messages** at `/messages` — DMs, optional `?to=username`.
+- **WebRTC stubs** — `CallPanel` uses `getUserMedia` / `getDisplayMedia` + HTTP signaling at `/api/calls/:id/signal` (in-memory; use Redis for multi-instance).
+- Schema auto-migrates on web start (`ensureMigrated` / `npm run db:migrate -w web`).

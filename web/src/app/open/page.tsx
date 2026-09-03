@@ -8,6 +8,7 @@ import { ProjectEditor } from "@/components/project/ProjectEditor";
 import { ClientJoin } from "@/components/project/ClientJoin";
 import { Contributors } from "@/components/project/Contributors";
 import { CollapsibleDescription } from "@/components/project/CollapsibleDescription";
+import { MembersSidebar } from "@/components/project/MembersSidebar";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -159,11 +160,19 @@ export default async function OpenProjectPage({ searchParams }: Props) {
     pendingJoins = pending;
   }
 
+  const sidebarMembers = memberRows.map((m) => ({
+    userId: m.userId,
+    name: m.name,
+    username: m.username || "user",
+    color: m.color,
+    role: m.role,
+  }));
+
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
+    <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="mb-6 flex flex-wrap justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">{project.title}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{project.title}</h1>
           <Contributors members={memberRows} />
           {project.description ? (
             <CollapsibleDescription text={project.description} />
@@ -180,6 +189,8 @@ export default async function OpenProjectPage({ searchParams }: Props) {
         </div>
       </div>
 
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
+        <div className="flex-1 min-w-0">
       {canEdit && collabToken && collabUser ? (
         <div className="min-h-[70vh]">
           <ProjectEditor
@@ -229,6 +240,18 @@ export default async function OpenProjectPage({ searchParams }: Props) {
           ) : null}
         </div>
       )}
+        </div>
+
+        {(canManage || membership) && (
+          <div className="w-full lg:w-64 shrink-0 lg:sticky lg:top-[4.5rem]">
+            <MembersSidebar
+              projectId={project.id}
+              members={sidebarMembers}
+              canManage={!!canManage}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
