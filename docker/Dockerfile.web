@@ -1,14 +1,6 @@
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
 
-# System deps needed by sharp (and general native modules)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    python3 \
-    make \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY web/package.json web/package-lock.json* ./
 RUN npm install
 
@@ -22,8 +14,6 @@ ENV NEXT_PUBLIC_HOCUSPOCUS_URL=$NEXT_PUBLIC_HOCUSPOCUS_URL
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
-# Give Node a bit more heap during build (Coolify build containers can be tight)
-ENV NODE_OPTIONS="--max-old-space-size=2048"
 
 RUN npm run build
 
