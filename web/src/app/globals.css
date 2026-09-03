@@ -392,7 +392,7 @@ mark.attr-other {
 /* Sticky editor chrome — sits under the main app header (h-14 = 3.5rem) */
 .editor-chrome {
   position: sticky;
-  top: 1.5rem; /* header height */
+  top: 1rem; /* header height */
   z-index: 30;
   background: var(--hq-sidebar);
   border-bottom: 1px solid var(--hq-border);
@@ -538,7 +538,7 @@ html[data-theme] header {
 .editor-shell-fullscreen > .flex-1 {
   min-height: 0;
   height: auto;
-  margin-top: 1.5em;
+  margin-top: 1em;
   overflow-y: auto;
   overflow-x: hidden;
   background: var(--hq-surface);
