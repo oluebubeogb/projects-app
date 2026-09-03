@@ -554,3 +554,42 @@ html[data-theme] header {
 .ProseMirror [style*="font-size"] {
   line-height: inherit;
 }
+
+/* Native browser fullscreen: this is intentionally the editor itself, not a
+   wrapper around the project page. This removes the app header, sidebar,
+   browser viewport constraints, and any transformed parent containment. */
+.editor-shell:fullscreen {
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  max-width: none !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--hq-surface) !important;
+  overflow: hidden !important;
+}
+
+.editor-shell:fullscreen::backdrop {
+  background: var(--hq-surface);
+}
+
+.editor-shell:fullscreen .editor-chrome {
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+.editor-shell:fullscreen > .flex-1 {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.editor-shell:fullscreen .ProseMirror {
+  width: 100%;
+  max-width: none;
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 4vw 5rem;
+}

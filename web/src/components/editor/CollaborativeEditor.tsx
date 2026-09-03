@@ -129,6 +129,7 @@ export function CollaborativeEditor({
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const editorShellRef = useRef<HTMLDivElement | null>(null);
   const providerRef = useRef<HocuspocusProvider | null>(null);
 
   const ydoc = useMemo(() => new Y.Doc(), []);
@@ -325,16 +326,54 @@ export function CollaborativeEditor({
     }
   }, [editor, projectId, readOnly, saving]);
 
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    document.body.classList.toggle("editor-fullscreen-open", isFullscreen);
-    return () => document.body.classList.remove("editor-fullscreen-open");
-  }, [isFullscreen]);
+  // Use the browser Fullscreen API so the editor leaves the entire application
+  // shell (and the browser chrome) behind. The CSS fixed-position fallback is
+  // retained for environments where requestFullscreen is unavailable.
+  const toggleFullscreen = useCallback(async () => {
+    const element = editorShellRef.current;
+    if (!element || typeof document === "undefined") return;
+
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if (element.requestFullscreen) {
+        await element.requestFullscreen();
+      } else {
+        setIsFullscreen((v) => !v);
+      }
+    } catch {
+      // If the browser blocks the native fullscreen request, fall back to the
+      // CSS fullscreen mode so the editor still occupies the application view.
+      setIsFullscreen((v) => !v);
+    }
+  }, []);
 
   useEffect(() => {
-    if (!isFullscreen) return;
+    if (typeof document === "undefined") return;
+
+    const syncFullscreenState = () => {
+      const nativeFullscreen = document.fullscreenElement === editorShellRef.current;
+      setIsFullscreen(nativeFullscreen);
+      document.body.classList.toggle("editor-fullscreen-open", nativeFullscreen);
+    };
+
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    syncFullscreenState();
+
+    return () => {
+      document.removeEventListener("fullscreenchange", syncFullscreenState);
+      document.body.classList.remove("editor-fullscreen-open");
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isFullscreen || typeof document === "undefined") return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsFullscreen(false);
+      // Native fullscreen already handles Escape, but this also closes the CSS
+      // fallback when requestFullscreen is unavailable.
+      if (e.key === "Escape" && !document.fullscreenElement) {
+        setIsFullscreen(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -599,7 +638,10 @@ export function CollaborativeEditor({
   );
 
   return (
-    <div className={cn("editor-shell flex flex-col", isFullscreen && "editor-shell-fullscreen")}>
+    <div
+      ref={editorShellRef}
+      className={cn("editor-shell flex flex-col", isFullscreen && "editor-shell-fullscreen")}
+    >
       {/* Sticky chrome: status + toolbar */}
       <div className="editor-chrome">
         {/* Status bar */}
@@ -646,7 +688,7 @@ export function CollaborativeEditor({
               <button
                 type="button"
                 title={isFullscreen ? "Exit fullscreen" : "Fullscreen editor"}
-                onClick={() => setIsFullscreen((v) => !v)}
+                onClick={toggleFullscreen}
                 className={cn(
                   "flex items-center gap-1 px-2 py-1 rounded-md transition-colors",
                   isFullscreen
