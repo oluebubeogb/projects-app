@@ -40,6 +40,12 @@ export const users = pgTable("users", {
   organization: text("organization").default(""),
   /** optional location / university */
   location: text("location").default(""),
+  /** phone number */
+  phone: text("phone").default(""),
+  /** date of birth ISO date string YYYY-MM-DD */
+  dateOfBirth: text("date_of_birth").default(""),
+  /** postal / street address */
+  address: text("address").default(""),
   /** platform role: user | admin */
   role: text("role", { enum: ["user", "admin"] })
     .notNull()

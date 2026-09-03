@@ -161,6 +161,9 @@ export async function migrate() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT '';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS organization TEXT DEFAULT '';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS location TEXT DEFAULT '';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_birth TEXT DEFAULT '';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT DEFAULT '';
       ALTER TABLE users ALTER COLUMN avatar_color SET DEFAULT '#5C5DE2';
 
       -- Forums

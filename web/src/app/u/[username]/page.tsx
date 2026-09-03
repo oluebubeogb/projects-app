@@ -98,11 +98,42 @@ export default async function UserProjectsPage({ params }: Props) {
             {profile.name[0]?.toUpperCase()}
           </span>
         )}
-        <div>
+        <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-bold">{profile.name}</h1>
           <p className="text-sm text-[var(--hq-muted)]">@{profile.username}</p>
+          {session && session.id !== profile.id && (
+            <Link
+              href={`/messages?to=${encodeURIComponent(profile.username)}`}
+              className="inline-flex mt-3 text-sm px-3 py-1.5 rounded-lg bg-[var(--hq-accent)] text-white hover:bg-[var(--hq-accent-hover)] transition-colors"
+            >
+              Send message
+            </Link>
+          )}
         </div>
       </div>
+
+      {profile.bio ? (
+        <div className="mb-6 text-sm leading-relaxed text-[var(--hq-text)]">
+          <details className="group">
+            <summary className="cursor-pointer list-none">
+              <span className="group-open:hidden">{profile.bio.length > 180 ? profile.bio.slice(0, 180) + "…" : profile.bio}</span>
+              <span className="hidden group-open:inline whitespace-pre-wrap">{profile.bio}</span>
+              {profile.bio.length > 180 && (
+                <span className="ml-1 text-[var(--hq-accent)] text-xs group-open:hidden">See more</span>
+              )}
+              {profile.bio.length > 180 && (
+                <span className="ml-1 text-[var(--hq-accent)] text-xs hidden group-open:inline">Hide</span>
+              )}
+            </summary>
+          </details>
+        </div>
+      ) : null}
+
+      {(profile.organization || profile.location) && (
+        <p className="text-sm text-[var(--hq-muted)] mb-6">
+          {[profile.organization, profile.location].filter(Boolean).join(" · ")}
+        </p>
+      )}
 
       <h2 className="text-sm font-semibold text-[var(--hq-muted)] uppercase tracking-wide mb-3">
         Projects

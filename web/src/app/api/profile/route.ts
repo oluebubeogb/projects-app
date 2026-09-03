@@ -18,6 +18,9 @@ export async function PATCH(req: NextRequest) {
     location?: string;
     avatarColor?: string;
     avatarUrl?: string;
+    phone?: string;
+    dateOfBirth?: string;
+    address?: string;
   };
   try {
     body = await req.json();
@@ -32,6 +35,9 @@ export async function PATCH(req: NextRequest) {
   const location = (body.location || "").trim().slice(0, 120);
   const avatarColor = (body.avatarColor || "#5C5DE2").slice(0, 32);
   const avatarUrl = (body.avatarUrl || "").trim().slice(0, 500) || null;
+  const phone = (body.phone || "").trim().slice(0, 40);
+  const dateOfBirth = (body.dateOfBirth || "").trim().slice(0, 12);
+  const address = (body.address || "").trim().slice(0, 200);
 
   if (name.length < 2) {
     return NextResponse.json({ error: "Name too short" }, { status: 400 });
@@ -63,6 +69,9 @@ export async function PATCH(req: NextRequest) {
       location,
       avatarColor,
       avatarUrl,
+      phone,
+      dateOfBirth,
+      address,
     } as Record<string, unknown>)
     .where(eq(users.id, session.id));
 

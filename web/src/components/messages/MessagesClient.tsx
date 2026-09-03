@@ -45,6 +45,7 @@ export function MessagesClient({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   async function loadConversations() {
     const res = await fetch("/api/messages");
@@ -181,12 +182,22 @@ export function MessagesClient({
               </div>
             </div>
 
+            <div className="px-4 pt-2">
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search"
+                className="w-full bg-transparent text-sm py-2 border-0 border-b border-[var(--hq-border)] focus:outline-none focus:border-[var(--hq-accent)] placeholder:text-[var(--hq-muted-2)]"
+              />
+            </div>
+
             <div className="px-3 pt-3">
               <CallPanel kind="dm" contextId={activeId} />
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-              {messages.map((m) => {
+              {(search.trim() ? messages.filter((m) => m.authorId === myId && m.body.toLowerCase().includes(search.trim().toLowerCase())) : messages).map((m) => {
                 const mine = m.authorId === myId;
                 return (
                   <div

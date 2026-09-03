@@ -1,6 +1,7 @@
 "use client";
 
 import { useEditor, EditorContent } from "@tiptap/react";
+import { Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -104,6 +105,32 @@ type Props = {
   onOpenInvite?: () => void;
   pendingJoins?: { id: string; name: string; userId: string }[];
 };
+
+
+/** TipTap fontSize attribute on textStyle mark */
+const FontSize = Extension.create({
+  name: "fontSize",
+  addOptions() {
+    return { types: ["textStyle"] };
+  },
+  addGlobalAttributes() {
+    return [
+      {
+        types: this.options.types,
+        attributes: {
+          fontSize: {
+            default: null,
+            parseHTML: (element: HTMLElement) => element.style.fontSize || null,
+            renderHTML: (attributes: { fontSize?: string | null }) => {
+              if (!attributes.fontSize) return {};
+              return { style: `font-size: ${attributes.fontSize}` };
+            },
+          },
+        },
+      },
+    ];
+  },
+});
 
 export function CollaborativeEditor({
   projectId,
@@ -232,6 +259,7 @@ export function CollaborativeEditor({
       }),
       Underline,
       TextStyle,
+      FontSize,
       Color,
       Highlight.configure({ multicolor: true }),
       Table.configure({
@@ -402,15 +430,19 @@ export function CollaborativeEditor({
     return { state: "down" as const, size: current };
   }, [editor]);
 
-  const cycleTextSize = useCallback(() => {
+  const applyFontSize = useCallback((size: number) => {
     if (!editor || readOnly) return;
-    const { state } = getTextSizeState();
-    const defaultSize = editor.state.selection.$from.parent.type.name === "paragraph" ? 17 : 21;
-    const step = 2;
-    const next = state === "default" ? defaultSize + step : state === "up" ? defaultSize : defaultSize - step;
-    if (Math.abs(next - defaultSize) < 0.1) editor.chain().focus().setMark("textStyle", { fontSize: `${defaultSize}px` }).run();
-    else editor.chain().focus().setMark("textStyle", { fontSize: `${next}px` }).run();
-  }, [editor, readOnly, getTextSizeState]);
+    // Soft bounds: keep readable but not extreme
+    const clamped = Math.max(8, Math.min(48, Math.round(size)));
+    editor.chain().focus().setMark("textStyle", { fontSize: `${clamped}px` }).run();
+  }, [editor, readOnly]);
+
+  const bumpFontSize = useCallback((delta: number) => {
+    if (!editor || readOnly) return;
+    const attrs = editor.getAttributes("textStyle") as { fontSize?: string };
+    const current = attrs.fontSize ? parseFloat(attrs.fontSize) : 16;
+    applyFontSize((Number.isFinite(current) ? current : 16) + delta);
+  }, [editor, readOnly, applyFontSize]);
 
   const run = useCallback(
     (cmd: string, value?: string) => {
@@ -553,7 +585,7 @@ export function CollaborativeEditor({
           chain.redo().run();
           break;
         case "fontSize":
-          cycleTextSize();
+          bumpFontSize(1);
           break;
         case "color":
           if (value) chain.setColor(value).run();
@@ -859,14 +891,22 @@ export function CollaborativeEditor({
                     label="Heading"
                     active={isActive("heading")}
                   />
-                  <ToolbarBtn
-                    cmd="fontSize"
-                    icon={ALargeSmall}
-                    label="Cycle text size"
-                    active={getTextSizeState().state !== "default"}
-                    activeTone={getTextSizeState().state === "up" ? "green" : getTextSizeState().state === "down" ? "purple" : undefined}
-                    onClick={() => cycleTextSize()}
-                  />
+                  <div className="inline-flex items-center gap-0.5 rounded-md border border-[var(--hq-border)] bg-[var(--hq-input-bg)] px-0.5 h-7" title="Font size">
+                    <button type="button" className="w-6 h-6 rounded text-xs font-medium hover:bg-[var(--hq-hover)] text-[var(--hq-text)]" onClick={() => bumpFontSize(-1)} aria-label="Decrease font size">−</button>
+                    <input
+                      type="number"
+                      min={8}
+                      max={48}
+                      className="w-9 h-6 text-center text-xs bg-transparent border-0 focus:outline-none text-[var(--hq-text)] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      value={Math.round(getTextSizeState().size)}
+                      onChange={(e) => {
+                        const n = parseInt(e.target.value, 10);
+                        if (!Number.isNaN(n)) applyFontSize(n);
+                      }}
+                      aria-label="Font size"
+                    />
+                    <button type="button" className="w-6 h-6 rounded text-xs font-medium hover:bg-[var(--hq-hover)] text-[var(--hq-text)]" onClick={() => bumpFontSize(1)} aria-label="Increase font size">+</button>
+                  </div>
                   <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
                   <ToolbarBtn
                     cmd="quote"

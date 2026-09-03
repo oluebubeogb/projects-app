@@ -34,6 +34,9 @@ export default async function ProfileSettingsPage() {
           location: (user as { location?: string | null }).location || "",
           avatarColor: user.avatarColor,
           avatarUrl: user.avatarUrl || "",
+          phone: (user as { phone?: string | null }).phone || "",
+          dateOfBirth: (user as { dateOfBirth?: string | null }).dateOfBirth || "",
+          address: (user as { address?: string | null }).address || "",
         }}
       />
     </div>

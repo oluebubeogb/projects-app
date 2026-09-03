@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -12,6 +13,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -86,7 +88,7 @@ export default function RegisterPage() {
         <div>
           <label className="block text-sm font-medium mb-1">Password</label>
           <input
-            type="password"
+            type={showPassword ? "text" : "password"}
             required
             minLength={6}
             value={password}

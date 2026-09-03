@@ -23,10 +23,12 @@ export function ForumThread({
   forumId,
   initialPosts = [],
   canPost,
+  currentUserId,
 }: {
   forumId: string;
   initialPosts?: Post[];
   canPost: boolean;
+  currentUserId?: string;
 }) {
   const [posts, setPosts] = useState<Post[]>(initialPosts);
 
@@ -53,10 +55,12 @@ export function ForumThread({
             No posts yet. Start the conversation.
           </p>
         )}
-        {posts.map((p) => (
+        {posts.map((p) => {
+          const mine = currentUserId && p.authorId === currentUserId;
+          return (
           <div
             key={p.id}
-            className="flex gap-3 p-3 rounded-[var(--hq-radius)] border border-[var(--hq-border)] bg-[var(--hq-surface)]"
+            className={`flex gap-3 p-3 rounded-[var(--hq-radius)] border border-[var(--hq-border)] bg-[var(--hq-surface)] max-w-[92%] ${mine ? "ml-auto flex-row-reverse" : "mr-auto"}`}
           >
             <div
               className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
@@ -89,7 +93,7 @@ export function ForumThread({
               )}
             </div>
           </div>
-        ))}
+        );})}
       </div>
 
       {canPost && (

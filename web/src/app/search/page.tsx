@@ -312,20 +312,7 @@ export default async function SearchPage({ searchParams }: Props) {
         Search projects
       </h1>
 
-      {/* Line 2 — search input */}
-      <form className="mb-4">
-        <input
-          type="search"
-          name="q"
-          defaultValue={query}
-          placeholder="Search by title, description, content, people, images…"
-          className="hq-input py-3 rounded-xl text-[0.95rem]"
-          autoFocus
-        />
-        <input type="hidden" name="type" value={activeType} />
-      </form>
-
-      {/* Line 3 — streamline options */}
+      {/* Search lives in the header; tabs filter results here */}
       <SearchTabs active={activeType} query={query} />
 
       {query && (
