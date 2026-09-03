@@ -55,13 +55,11 @@ import {
   Minimize2,
   Save,
   ALargeSmall,
-  Palette,
   FilePlus,
   Mail,
   Table as TableIcon,
   Rows3,
   Columns3,
-  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PendingJoinBanner } from "@/components/project/PendingJoinBanner";
@@ -328,6 +326,12 @@ export function CollaborativeEditor({
   }, [editor, projectId, readOnly, saving]);
 
   useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.body.classList.toggle("editor-fullscreen-open", isFullscreen);
+    return () => document.body.classList.remove("editor-fullscreen-open");
+  }, [isFullscreen]);
+
+  useEffect(() => {
     if (!isFullscreen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setIsFullscreen(false);
@@ -361,7 +365,7 @@ export function CollaborativeEditor({
 
   const cycleTextSize = useCallback(() => {
     if (!editor || readOnly) return;
-    const { state, size } = getTextSizeState();
+    const { state } = getTextSizeState();
     const defaultSize = editor.state.selection.$from.parent.type.name === "paragraph" ? 17 : 21;
     const step = 2;
     const next = state === "default" ? defaultSize + step : state === "up" ? defaultSize : defaultSize - step;
