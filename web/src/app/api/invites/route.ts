@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { invites, projects, projectMembers, users } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, ilike, or } from "drizzle-orm";
 import { uid, MEMBER_COLORS } from "@/lib/utils";
 import { z } from "zod";
 import { randomBytes } from "crypto";
@@ -10,7 +10,7 @@ import { notify } from "@/lib/notifications";
 
 const createSchema = z.object({
   projectId: z.string().min(1),
-  email: z.string().email(),
+  identifier: z.string().min(2),
   role: z.enum(["admin", "editor", "viewer"]).default("editor"),
 });
 
@@ -36,6 +36,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const q = req.nextUrl.searchParams.get("q")?.trim();
+  if (q) {
+    const rows = await db
+      .select({ id: users.id, username: users.username, name: users.name })
+      .from(users)
+      .where(or(ilike(users.username, `%${q.replace(/[%_]/g, "\\$&")}%`), ilike(users.name, `%${q.replace(/[%_]/g, "\\$&")}%`)))
+      .limit(8);
+    return NextResponse.json({ users: rows });
+  }
+
+
   const rows = await db
     .select()
     .from(invites)
@@ -51,7 +62,6 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const data = createSchema.parse(body);
-
     const mem = await db
       .select()
       .from(projectMembers)
@@ -66,24 +76,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    const identifier = data.identifier.trim().replace(/^@/, "");
+    const inviteeRows = await db
+      .select()
+      .from(users)
+      .where(or(eq(users.email, identifier.toLowerCase()), eq(users.username, identifier)))
+      .limit(1);
+    if (!inviteeRows[0]) {
+      return NextResponse.json({ error: "No registered user found for that email or username" }, { status: 404 });
+    }
+    const invitee = inviteeRows[0];
+
+
     const token = randomBytes(24).toString("hex");
     const id = uid();
 
     await db.insert(invites).values({
       id,
       projectId: data.projectId,
-      email: data.email.toLowerCase(),
+      email: invitee.email.toLowerCase(),
       role: data.role,
       token,
       invitedBy: user.id,
     });
-
-    // Notify existing user if registered
-    const invitee = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, data.email.toLowerCase()))
-      .limit(1);
 
     const proj = await db
       .select()
@@ -95,9 +110,9 @@ export async function POST(req: NextRequest) {
       ? `/project/${encodeURIComponent(proj[0].slug)}?invite=${token}`
       : `/invite?token=${token}`;
 
-    if (invitee[0]) {
+    if (invitee) {
       await notify({
-        userId: invitee[0].id,
+        userId: invitee.id,
         type: "project_invite",
         title: `${user.name} invited you to collaborate`,
         body: proj[0]
@@ -109,9 +124,9 @@ export async function POST(req: NextRequest) {
     }
 
     console.log("[invites] created", {
-      email: data.email,
+      identifier: data.identifier,
       role: data.role,
-      notified: Boolean(invitee[0]),
+      notified: true,
       projectId: data.projectId,
     });
 
@@ -119,9 +134,9 @@ export async function POST(req: NextRequest) {
       ok: true,
       invite: {
         id,
-        email: data.email,
+        identifier: data.identifier,
         role: data.role,
-        notified: Boolean(invitee[0]),
+        notified: true,
       },
     });
 

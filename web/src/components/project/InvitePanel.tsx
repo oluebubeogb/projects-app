@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, Mail, Check } from "lucide-react";
+import { X, Mail, Check, UserRound } from "lucide-react";
 
 export function InvitePanel({
   projectId,
@@ -10,11 +10,28 @@ export function InvitePanel({
   projectId: string;
   onClose: () => void;
 }) {
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
+  const [suggestions, setSuggestions] = useState<{ id: string; username: string; name: string }[]>([]);
   const [role, setRole] = useState<"admin" | "editor" | "viewer">("editor");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function searchUsers(value: string) {
+    setIdentifier(value);
+    if (value.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/invites?projectId=${encodeURIComponent(projectId)}&q=${encodeURIComponent(value.trim())}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setSuggestions(data.users || []);
+    } catch {
+      setSuggestions([]);
+    }
+  }
 
   async function send() {
     setLoading(true);
@@ -24,12 +41,13 @@ export function InvitePanel({
       const res = await fetch("/api/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, email, role }),
+        body: JSON.stringify({ projectId, identifier, role }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
       setSent(true);
-      setEmail("");
+      setIdentifier("");
+      setSuggestions([]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -68,16 +86,42 @@ export function InvitePanel({
             </div>
           ) : (
             <>
-              <div>
-                <label className="text-xs text-[var(--hq-muted)] block mb-1">Email</label>
-                <input
-                  type="email"
-                  className="hq-input"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="colleague@example.com"
-                  onKeyDown={(e) => e.key === "Enter" && email.trim() && send()}
-                />
+              <div className="relative">
+                <label className="text-xs text-[var(--hq-muted)] block mb-1">Email or username</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--hq-muted)]">
+                    {identifier.trim().startsWith("@") ? <UserRound size={15} /> : <Mail size={15} />}
+                  </span>
+                  <input
+                    type="text"
+                    className="hq-input pl-9"
+                    value={identifier}
+                    onChange={(e) => searchUsers(e.target.value)}
+                    placeholder="email@example.com or @username"
+                    autoComplete="off"
+                    onKeyDown={(e) => e.key === "Enter" && identifier.trim() && send()}
+                  />
+                </div>
+                {suggestions.length > 0 && (
+                  <div className="absolute z-10 left-0 right-0 mt-1 overflow-hidden rounded-lg border border-[var(--hq-border)] bg-[var(--hq-surface)] shadow-lg">
+                    {suggestions.map((u) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-[var(--hq-hover)]"
+                        onClick={() => { setIdentifier(`@${u.username}`); setSuggestions([]); }}
+                      >
+                        <span className="w-8 h-8 rounded-full bg-[var(--hq-accent)]/10 text-[var(--hq-accent)] flex items-center justify-center text-xs font-semibold">
+                          {u.name?.[0]?.toUpperCase() || "U"}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-sm truncate">{u.name}</span>
+                          <span className="block text-xs text-[var(--hq-muted)] truncate">@{u.username}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="text-xs text-[var(--hq-muted)] block mb-1">Role</label>
@@ -93,7 +137,7 @@ export function InvitePanel({
               </div>
               <button
                 type="button"
-                disabled={loading || !email.trim()}
+                disabled={loading || !identifier.trim()}
                 onClick={send}
                 className="hq-btn hq-btn-primary w-full disabled:opacity-50"
               >

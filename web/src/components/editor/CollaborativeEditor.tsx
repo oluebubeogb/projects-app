@@ -51,6 +51,8 @@ import {
   SeparatorHorizontal,
   FileCode,
   Type,
+  Maximize2,
+  Minimize2,
   Save,
   ALargeSmall,
   Palette,
@@ -128,6 +130,7 @@ export function CollaborativeEditor({
   const [tableCols, setTableCols] = useState(3);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const providerRef = useRef<HocuspocusProvider | null>(null);
 
   const ydoc = useMemo(() => new Y.Doc(), []);
@@ -324,6 +327,15 @@ export function CollaborativeEditor({
     }
   }, [editor, projectId, readOnly, saving]);
 
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isFullscreen]);
+
   // Ctrl/Cmd+S
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -335,6 +347,27 @@ export function CollaborativeEditor({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [doSave]);
+
+  const getTextSizeState = useCallback(() => {
+    if (!editor) return { state: "default" as const, size: 10 };
+    const attrs = editor.getAttributes("textStyle") as { fontSize?: string };
+    const current = attrs.fontSize ? parseFloat(attrs.fontSize) : null;
+    const node = editor.state.selection.$from.parent;
+    const defaultSize = node.type.name === "paragraph" ? 17 : 21;
+    if (current == null || Math.abs(current - defaultSize) < 0.1) return { state: "default" as const, size: defaultSize };
+    if (current > defaultSize) return { state: "up" as const, size: current };
+    return { state: "down" as const, size: current };
+  }, [editor]);
+
+  const cycleTextSize = useCallback(() => {
+    if (!editor || readOnly) return;
+    const { state, size } = getTextSizeState();
+    const defaultSize = editor.state.selection.$from.parent.type.name === "paragraph" ? 17 : 21;
+    const step = defaultSize === 10 ? 4 : 2;
+    const next = state === "default" ? defaultSize + step : state === "up" ? defaultSize : defaultSize - (defaultSize === 10 ? 2 : step);
+    if (Math.abs(next - defaultSize) < 0.1) editor.chain().focus().setMark("textStyle", { fontSize: `${defaultSize}px` }).run();
+    else editor.chain().focus().setMark("textStyle", { fontSize: `${next}px` }).run();
+  }, [editor, readOnly, getTextSizeState]);
 
   const run = useCallback(
     (cmd: string, value?: string) => {
@@ -457,7 +490,9 @@ export function CollaborativeEditor({
         case "faq":
           chain
             .focus()
-            .insertContent("<h2>Question?</h2><p>Answer goes here.</p>")
+            .insertContent(
+              "<h2>Frequently Asked Questions</h2><p><strong>Question:</strong> Add a frequently asked question.</p><p><strong>Answer:</strong> Add the answer here.</p>"
+            )
             .run();
           break;
         case "embedHtml": {
@@ -474,25 +509,9 @@ export function CollaborativeEditor({
         case "redo":
           chain.redo().run();
           break;
-        case "fontUp": {
-          // Cycle: base -> heading -> larger
-          if (editor.isActive("heading", { level: 1 })) {
-            // already largest
-          } else if (editor.isActive("heading")) {
-            chain.toggleHeading({ level: 1 }).run();
-          } else {
-            chain.toggleHeading({ level: 2 }).run();
-          }
+        case "fontSize":
+          cycleTextSize();
           break;
-        }
-        case "fontDown": {
-          if (editor.isActive("heading", { level: 1 })) {
-            chain.toggleHeading({ level: 2 }).run();
-          } else if (editor.isActive("heading")) {
-            chain.setParagraph().run();
-          }
-          break;
-        }
         case "color":
           if (value) chain.setColor(value).run();
           break;
@@ -530,7 +549,7 @@ export function CollaborativeEditor({
           break;
       }
     },
-    [editor, tableRows, tableCols]
+    [editor, tableRows, tableCols, cycleTextSize]
   );
 
   const isActive = (name: string, attrs?: Record<string, unknown>) =>
@@ -541,13 +560,17 @@ export function CollaborativeEditor({
     icon: Icon,
     label,
     active,
+    activeTone,
     onClick,
+    destructive,
   }: {
     cmd?: string;
     icon: React.ComponentType<{ size?: number }>;
     label: string;
     active?: boolean;
+    activeTone?: "green" | "purple";
     onClick?: () => void;
+    destructive?: boolean;
   }) => (
     <button
       type="button"
@@ -556,9 +579,15 @@ export function CollaborativeEditor({
       disabled={readOnly}
       className={cn(
         "p-2 rounded-md transition-colors disabled:opacity-40",
-        active
-          ? "bg-[var(--hq-accent)]/15 text-[var(--hq-accent)]"
-          : "hover:bg-[var(--hq-hover)] text-[var(--hq-muted)] hover:text-[var(--hq-text)]"
+        destructive
+          ? "bg-red-50/80 text-red-600 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 dark:hover:bg-red-950/50"
+          : activeTone === "green"
+            ? "bg-emerald-100/80 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+            : activeTone === "purple"
+              ? "bg-purple-100/80 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400"
+              : active
+                ? "bg-[var(--hq-accent)]/15 text-[var(--hq-accent)]"
+            : "hover:bg-[var(--hq-hover)] text-[var(--hq-muted)] hover:text-[var(--hq-text)]"
       )}
     >
       <Icon size={16} />
@@ -566,7 +595,7 @@ export function CollaborativeEditor({
   );
 
   return (
-    <div className="editor-shell flex flex-col">
+    <div className={cn("editor-shell flex flex-col", isFullscreen && "editor-shell-fullscreen")}>
       {/* Sticky chrome: status + toolbar */}
       <div className="editor-chrome">
         {/* Status bar */}
@@ -609,6 +638,23 @@ export function CollaborativeEditor({
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
+            {!readOnly && (
+              <button
+                type="button"
+                title={isFullscreen ? "Exit fullscreen" : "Fullscreen editor"}
+                onClick={() => setIsFullscreen((v) => !v)}
+                className={cn(
+                  "flex items-center gap-1 px-2 py-1 rounded-md transition-colors",
+                  isFullscreen
+                    ? "bg-[var(--hq-accent)]/15 text-[var(--hq-accent)]"
+                    : "hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]"
+                )}
+              >
+                {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                <span className="hidden sm:inline">{isFullscreen ? "Exit" : "Fullscreen"}</span>
+              </button>
+            )}
+
             {!readOnly && (
               <button
                 type="button"
@@ -768,14 +814,12 @@ export function CollaborativeEditor({
                     active={isActive("heading")}
                   />
                   <ToolbarBtn
-                    cmd="fontUp"
+                    cmd="fontSize"
                     icon={ALargeSmall}
-                    label="Larger text"
-                  />
-                  <ToolbarBtn
-                    cmd="fontDown"
-                    icon={Type}
-                    label="Smaller text"
+                    label="Cycle text size"
+                    active={getTextSizeState().state !== "default"}
+                    activeTone={getTextSizeState().state === "up" ? "green" : getTextSizeState().state === "down" ? "purple" : undefined}
+                    onClick={() => cycleTextSize()}
                   />
                   <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
                   <ToolbarBtn
@@ -913,11 +957,12 @@ export function CollaborativeEditor({
                       <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
                       <ToolbarBtn cmd="addRowAfter" icon={Rows3} label="Add row" />
                       <ToolbarBtn cmd="addColAfter" icon={Columns3} label="Add column" />
-                      <ToolbarBtn cmd="deleteRow" icon={Trash2} label="Delete row" />
-                      <ToolbarBtn cmd="deleteCol" icon={Trash2} label="Delete column" />
-                      <ToolbarBtn cmd="deleteTable" icon={Trash2} label="Delete table" />
+                      <ToolbarBtn cmd="deleteRow" icon={Rows3} label="Delete row" destructive />
+                      <ToolbarBtn cmd="deleteCol" icon={Columns3} label="Delete column" destructive />
+                      <ToolbarBtn cmd="deleteTable" icon={TableIcon} label="Delete table" destructive />
                     </>
                   )}
+                  <ToolbarBtn cmd="faq" icon={Quote} label="Frequently asked questions" />
                   <ToolbarBtn
                     cmd="code"
                     icon={FileCode}
@@ -953,7 +998,6 @@ export function CollaborativeEditor({
                   />
                   <ToolbarBtn cmd="infoBlock" icon={Info} label="Info block" />
                   <ToolbarBtn cmd="button" icon={LinkIcon} label="Button" />
-                  <ToolbarBtn cmd="faq" icon={Quote} label="FAQ block" />
                 </>
               )}
             </div>
