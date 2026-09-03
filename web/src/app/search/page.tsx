@@ -2,7 +2,7 @@ import Link from "next/link";
 import { db, searchProjectsFts } from "@/lib/db";
 import { projects } from "@/lib/db/schema";
 import { eq, inArray, desc } from "drizzle-orm";
-import { relevanceScore } from "@/lib/utils";
+import { relevanceScore, extractSearchExcerpt } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +12,10 @@ export default async function SearchPage({ searchParams }: Props) {
   const { q = "" } = await searchParams;
   const query = q.trim();
 
-  let results: (typeof projects.$inferSelect & { score: number })[] = [];
+  let results: (typeof projects.$inferSelect & {
+    score: number;
+    excerpt: string | null;
+  })[] = [];
   let usedFts = false;
 
   if (query) {
@@ -25,26 +28,55 @@ export default async function SearchPage({ searchParams }: Props) {
         .from(projects)
         .where(inArray(projects.id, ids));
       const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
-      // PostgreSQL ts_rank: higher = better
       results = ftsHits
         .map((h, i) => {
           const p = byId[h.projectId];
           if (!p || p.visibility !== "public") return null;
-          return { ...p, score: 1000 - i };
+          const source =
+            p.searchText ||
+            (p.latestSnapshotHtml
+              ? p.latestSnapshotHtml.replace(/<[^>]+>/g, " ")
+              : "") ||
+            p.description ||
+            "";
+          const excerpt =
+            extractSearchExcerpt(query, source) ||
+            extractSearchExcerpt(query, p.description || "") ||
+            (p.description
+              ? extractSearchExcerpt(query, p.description)
+              : null);
+          return { ...p, score: 1000 - i, excerpt };
         })
-        .filter(Boolean) as (typeof projects.$inferSelect & { score: number })[];
+        .filter(Boolean) as (typeof projects.$inferSelect & {
+        score: number;
+        excerpt: string | null;
+      })[];
     } else {
-      // Fallback LIKE / relevance
       const allPublic = await db
         .select()
         .from(projects)
         .where(eq(projects.visibility, "public"));
 
       results = allPublic
-        .map((p) => ({
-          ...p,
-          score: relevanceScore(query, p.title, p.description, p.searchText),
-        }))
+        .map((p) => {
+          const source =
+            p.searchText ||
+            (p.latestSnapshotHtml
+              ? p.latestSnapshotHtml.replace(/<[^>]+>/g, " ")
+              : "") ||
+            p.description ||
+            "";
+          const score = relevanceScore(
+            query,
+            p.title,
+            p.description,
+            source
+          );
+          const excerpt =
+            extractSearchExcerpt(query, source) ||
+            extractSearchExcerpt(query, p.description || "");
+          return { ...p, score, excerpt };
+        })
         .filter((p) => p.score > 0)
         .sort((a, b) => b.score - a.score)
         .slice(0, 50);
@@ -56,7 +88,7 @@ export default async function SearchPage({ searchParams }: Props) {
       .where(eq(projects.visibility, "public"))
       .orderBy(desc(projects.updatedAt))
       .limit(24);
-    results = recent.map((p) => ({ ...p, score: 0 }));
+    results = recent.map((p) => ({ ...p, score: 0, excerpt: null }));
   }
 
   return (
@@ -94,11 +126,15 @@ export default async function SearchPage({ searchParams }: Props) {
             className="block p-4 rounded-[var(--hq-radius)] border border-[var(--hq-border)] bg-[var(--hq-surface)] hover:border-[var(--hq-accent)] transition-colors"
           >
             <h2 className="font-medium">{p.title}</h2>
-            {p.description && (
+            {query && p.excerpt ? (
+              <p className="text-sm text-[var(--hq-muted)] mt-1.5 leading-relaxed">
+                {p.excerpt}
+              </p>
+            ) : p.description ? (
               <p className="text-sm text-[var(--hq-muted)] mt-1 line-clamp-2">
                 {p.description}
               </p>
-            )}
+            ) : null}
           </Link>
         ))}
       </div>

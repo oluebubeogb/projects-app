@@ -38,7 +38,12 @@
     "@tiptap/extension-text-style": "^2.11.5",
     "@tiptap/extension-color": "^2.11.5",
     "@tiptap/extension-highlight": "^2.11.5",
-    "sharp": "^0.33.5"
+    "sharp": "^0.33.5",
+    "@tiptap/extension-table": "^2.11.5",
+    "@tiptap/extension-table-row": "^2.11.5",
+    "@tiptap/extension-table-cell": "^2.11.5",
+    "@tiptap/extension-table-header": "^2.11.5",
+    "pdfkit": "^0.15.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.9",
@@ -52,6 +57,7 @@
     "tailwindcss": "^4.0.9",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
-    "@types/pg": "^8.11.11"
+    "@types/pg": "^8.11.11",
+    "@types/pdfkit": "^0.13.9"
   }
 }

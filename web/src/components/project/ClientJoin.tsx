@@ -37,23 +37,23 @@ export function ClientJoin({
 
   if (done) {
     return (
-      <span className="px-3 py-1.5 text-sm rounded-lg bg-yellow-50 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200">
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-[var(--hq-warning)]/15 text-[var(--hq-warning)]">
         Request pending
       </span>
     );
   }
 
   return (
-    <div className="flex flex-col items-end gap-1">
+    <span className="inline-flex items-center gap-2">
       <button
         type="button"
         onClick={requestJoin}
         disabled={loading}
-        className="px-3 py-1.5 text-sm rounded-lg bg-[var(--hq-accent)] text-white font-medium hover:bg-[var(--hq-accent-hover)] disabled:opacity-60 transition-colors"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-[var(--hq-success)]/15 text-[var(--hq-success)] hover:bg-[var(--hq-success)]/25 transition-colors disabled:opacity-50"
       >
-        {loading ? "Sending…" : "Request to join"}
+        {loading ? "Sending…" : "Join this project"}
       </button>
-      {error && <span className="text-xs text-red-600">{error}</span>}
-    </div>
+      {error && <span className="text-[var(--hq-danger)] text-xs">{error}</span>}
+    </span>
   );
 }

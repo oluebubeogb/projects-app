@@ -13,6 +13,7 @@ import { ClientJoin } from "@/components/project/ClientJoin";
 import { AcceptInviteButton } from "@/components/project/AcceptInviteButton";
 import { ShareButton } from "@/components/project/ShareButton";
 import { Contributors } from "@/components/project/Contributors";
+import { CollapsibleDescription } from "@/components/project/CollapsibleDescription";
 import { Pencil } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -182,7 +183,7 @@ export default async function ProjectReadOnlyPage({
         <h1 className="text-2xl font-bold tracking-tight">{project.title}</h1>
         <Contributors members={memberRows} />
         {project.description ? (
-          <p className="text-[var(--hq-muted)] mt-2 project-desc whitespace-pre-wrap">{project.description}</p>
+          <CollapsibleDescription text={project.description} />
         ) : null}
       </div>
 
@@ -208,7 +209,7 @@ export default async function ProjectReadOnlyPage({
           </div>
 
           <div className="flex items-center gap-2">
-            <ShareButton path={shortPath} title={project.title} />
+            <ShareButton path={shortPath} title={project.title} projectId={project.id} slug={project.slug} />
             {/* Collaborators */}
             <div className="flex items-center -space-x-1.5">
               {memberRows.map((m, i) => (

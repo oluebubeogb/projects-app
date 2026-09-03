@@ -15,6 +15,10 @@ import TextAlign from "@tiptap/extension-text-align";
 import TextStyle from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
+import Table from "@tiptap/extension-table";
+import TableRow from "@tiptap/extension-table-row";
+import TableCell from "@tiptap/extension-table-cell";
+import TableHeader from "@tiptap/extension-table-header";
 import {
   Bold,
   Italic,
@@ -52,6 +56,10 @@ import {
   Palette,
   FilePlus,
   Mail,
+  Table as TableIcon,
+  Rows3,
+  Columns3,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -93,6 +101,7 @@ type Props = {
   onOpenHistory?: () => void;
   onOpenMedia?: () => void;
   onOpenInvite?: () => void;
+  pendingJoins?: { id: string; name: string; userId: string }[];
 };
 
 export function CollaborativeEditor({
@@ -103,6 +112,7 @@ export function CollaborativeEditor({
   onOpenHistory,
   onOpenMedia,
   onOpenInvite,
+  pendingJoins = [],
 }: Props) {
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">(
     "connecting"
@@ -110,8 +120,11 @@ export function CollaborativeEditor({
   const [peers, setPeers] = useState<{ name: string; color: string }[]>([]);
   const [showMyInputs, setShowMyInputs] = useState(false);
   const [toolGroup, setToolGroup] = useState<
-    "text" | "paragraph" | "align" | "insert" | "media" | "advanced"
+    "text" | "paragraph" | "color" | "align" | "insert" | "media" | "advanced"
   >("text");
+  const [tableModal, setTableModal] = useState(false);
+  const [tableRows, setTableRows] = useState(3);
+  const [tableCols, setTableCols] = useState(3);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const providerRef = useRef<HocuspocusProvider | null>(null);
@@ -218,6 +231,13 @@ export function CollaborativeEditor({
       TextStyle,
       Color,
       Highlight.configure({ multicolor: true }),
+      Table.configure({
+        resizable: true,
+        HTMLAttributes: { class: "editor-table" },
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
       Image.configure({
         inline: false,
         allowBase64: false,
@@ -479,9 +499,37 @@ export function CollaborativeEditor({
           if (value === "transparent") chain.unsetHighlight().run();
           else if (value) chain.setHighlight({ color: value }).run();
           break;
+        case "insertTable": {
+          const r = Math.max(1, Math.min(20, tableRows));
+          const c = Math.max(1, Math.min(12, tableCols));
+          chain.insertTable({ rows: r, cols: c, withHeaderRow: true }).run();
+          setTableModal(false);
+          break;
+        }
+        case "addColBefore":
+          chain.addColumnBefore().run();
+          break;
+        case "addColAfter":
+          chain.addColumnAfter().run();
+          break;
+        case "deleteCol":
+          chain.deleteColumn().run();
+          break;
+        case "addRowBefore":
+          chain.addRowBefore().run();
+          break;
+        case "addRowAfter":
+          chain.addRowAfter().run();
+          break;
+        case "deleteRow":
+          chain.deleteRow().run();
+          break;
+        case "deleteTable":
+          chain.deleteTable().run();
+          break;
       }
     },
-    [editor]
+    [editor, tableRows, tableCols]
   );
 
   const isActive = (name: string, attrs?: Record<string, unknown>) =>
@@ -553,6 +601,9 @@ export function CollaborativeEditor({
               >
                 Retry
               </button>
+            )}
+            {pendingJoins.length > 0 && (
+              <PendingJoinBanner requests={pendingJoins} />
             )}
           </div>
 
@@ -651,6 +702,7 @@ export function CollaborativeEditor({
                 [
                   ["text", "Text"],
                   ["paragraph", "Paragraph"],
+                  ["color", "Color"],
                   ["align", "Align"],
                   ["insert", "Insert"],
                   ["media", "Media"],
@@ -738,10 +790,12 @@ export function CollaborativeEditor({
                     active={isActive("code")}
                   />
                   <ToolbarBtn cmd="clearFormat" icon={RemoveFormatting} label="Clear formatting" />
-                  <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
-                  {/* Color */}
-                  <div className="flex items-center gap-0.5" title="Text color">
-                    <Palette size={14} className="text-[var(--hq-muted)] mr-0.5" />
+                </>
+              )}
+              {toolGroup === "color" && (
+                <>
+                  <div className="flex items-center gap-0.5 flex-wrap" title="Text color">
+                    <span className="text-xs text-[var(--hq-muted)] mr-1">Text</span>
                     {TEXT_COLORS.map((c) => (
                       <button
                         key={c}
@@ -754,8 +808,8 @@ export function CollaborativeEditor({
                     ))}
                   </div>
                   <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
-                  {/* Background */}
-                  <div className="flex items-center gap-0.5" title="Background color">
+                  <div className="flex items-center gap-0.5 flex-wrap" title="Background color">
+                    <span className="text-xs text-[var(--hq-muted)] mr-1">BG</span>
                     {BG_COLORS.map((c) => (
                       <button
                         key={c}
@@ -848,6 +902,22 @@ export function CollaborativeEditor({
                     label="Insert new page (divider + continue)"
                   />
                   <ToolbarBtn
+                    icon={TableIcon}
+                    label="Insert table"
+                    onClick={() => setTableModal(true)}
+                    active={isActive("table")}
+                  />
+                  {isActive("table") && (
+                    <>
+                      <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
+                      <ToolbarBtn cmd="addRowAfter" icon={Rows3} label="Add row" />
+                      <ToolbarBtn cmd="addColAfter" icon={Columns3} label="Add column" />
+                      <ToolbarBtn cmd="deleteRow" icon={Trash2} label="Delete row" />
+                      <ToolbarBtn cmd="deleteCol" icon={Trash2} label="Delete column" />
+                      <ToolbarBtn cmd="deleteTable" icon={Trash2} label="Delete table" />
+                    </>
+                  )}
+                  <ToolbarBtn
                     cmd="code"
                     icon={FileCode}
                     label="Code block"
@@ -894,6 +964,56 @@ export function CollaborativeEditor({
       <div className="flex-1">
         <EditorContent editor={editor} />
       </div>
+
+      {tableModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm hq-card shadow-xl">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--hq-border)]">
+              <h2 className="font-semibold flex items-center gap-2">
+                <TableIcon size={18} /> Insert table
+              </h2>
+              <button
+                type="button"
+                onClick={() => setTableModal(false)}
+                className="p-1 rounded hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="text-xs text-[var(--hq-muted)] block mb-1">Rows</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={tableRows}
+                  onChange={(e) => setTableRows(Number(e.target.value) || 1)}
+                  className="hq-input"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[var(--hq-muted)] block mb-1">Columns</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={12}
+                  value={tableCols}
+                  onChange={(e) => setTableCols(Number(e.target.value) || 1)}
+                  className="hq-input"
+                />
+              </div>
+              <button
+                type="button"
+                className="hq-btn hq-btn-primary w-full"
+                onClick={() => run("insertTable")}
+              >
+                Insert {tableRows}×{tableCols} table
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

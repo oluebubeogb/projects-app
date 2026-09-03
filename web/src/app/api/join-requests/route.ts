@@ -78,7 +78,14 @@ export async function POST(req: NextRequest) {
       const link = proj[0] ? `/open?slug=${encodeURIComponent(proj[0].slug)}` : "/dashboard";
       for (const o of owners) {
         if (o.userId === user.id) continue;
-        await notify({ userId: o.userId, type: "join_request", title: `${user.name} requested to join`, body: title, link });
+        await notify({
+          userId: o.userId,
+          type: "join_request",
+          title: `${user.name} wants to join`,
+          body: title,
+          link,
+          meta: { requestUserId: user.id, projectId: data.projectId },
+        });
       }
     } catch (e) { console.error("[join] notify", e); }
 
@@ -152,6 +159,17 @@ export async function PATCH(req: NextRequest) {
         .update(joinRequests)
         .set({ status: "approved" })
         .where(eq(joinRequests.id, data.requestId));
+      try {
+        const proj = await db.select().from(projects).where(eq(projects.id, request.projectId)).limit(1);
+        const link = proj[0] ? `/open?slug=${encodeURIComponent(proj[0].slug)}` : "/dashboard";
+        await notify({
+          userId: request.userId,
+          type: "join_approved",
+          title: "You were accepted",
+          body: proj[0]?.title || "a project",
+          link,
+        });
+      } catch (e) { console.error("[join] approve notify", e); }
     } else {
       await db
         .update(joinRequests)

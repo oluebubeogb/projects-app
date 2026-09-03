@@ -6,12 +6,17 @@ import { Share2, Link2, Check, Download, ExternalLink } from "lucide-react";
 export function ShareButton({
   path,
   title,
+  projectId,
+  slug,
 }: {
   path: string;
   title?: string;
+  projectId?: string;
+  slug?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,10 +56,38 @@ export function ShareButton({
     setOpen(false);
   }
 
-  function downloadPdf() {
-    // Print dialog as lightweight PDF export
-    window.print();
-    setOpen(false);
+  async function downloadPdf() {
+    setPdfLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (projectId) params.set("projectId", projectId);
+      else if (slug) params.set("slug", slug);
+      else {
+        // fallback: extract slug from path /p/slug
+        const m = path.match(/\/p\/([^/?#]+)/);
+        if (m) params.set("slug", decodeURIComponent(m[1]));
+      }
+      const res = await fetch(`/api/projects/pdf?${params.toString()}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "PDF export failed");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${slug || title || "project"}.pdf`.replace(/[^\w.-]+/g, "-");
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setOpen(false);
+    } catch {
+      alert("PDF export failed");
+    } finally {
+      setPdfLoading(false);
+    }
   }
 
   return (
@@ -69,7 +102,7 @@ export function ShareButton({
         <span className="hidden sm:inline">Share</span>
       </button>
       {open && (
-        <div className="absolute right-0 mt-1 w-48 rounded-lg border border-[var(--hq-border)] bg-[var(--hq-surface)] shadow-lg z-50 py-1 text-sm">
+        <div className="absolute right-0 mt-1 w-52 rounded-lg border border-[var(--hq-border)] bg-[var(--hq-surface)] shadow-lg z-50 py-1 text-sm">
           <button
             type="button"
             onClick={copyShort}
@@ -93,10 +126,11 @@ export function ShareButton({
           <button
             type="button"
             onClick={downloadPdf}
-            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--hq-hover)] text-left"
+            disabled={pdfLoading}
+            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--hq-hover)] text-left disabled:opacity-50"
           >
             <Download size={14} />
-            Download as PDF
+            {pdfLoading ? "Preparing PDF…" : "Download as PDF"}
           </button>
         </div>
       )}

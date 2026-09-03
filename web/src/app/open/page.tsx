@@ -1,11 +1,13 @@
 import { getSessionUser, createCollabToken } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { projects, projectMembers, joinRequests } from "@/lib/db/schema";
+import { projects, projectMembers, joinRequests, users } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import Link from "next/link";
 import path from "path";
 import { ProjectEditor } from "@/components/project/ProjectEditor";
 import { ClientJoin } from "@/components/project/ClientJoin";
+import { Contributors } from "@/components/project/Contributors";
+import { CollapsibleDescription } from "@/components/project/CollapsibleDescription";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -124,13 +126,47 @@ export default async function OpenProjectPage({ searchParams }: Props) {
     };
   }
 
+  const memberRows = await db
+    .select({
+      name: users.name,
+      username: users.username,
+      color: projectMembers.color,
+      role: projectMembers.role,
+      userId: users.id,
+    })
+    .from(projectMembers)
+    .innerJoin(users, eq(users.id, projectMembers.userId))
+    .where(eq(projectMembers.projectId, project.id))
+    .limit(40);
+
+  let pendingJoins: { id: string; name: string; userId: string }[] = [];
+  if (canManage) {
+    const pending = await db
+      .select({
+        id: joinRequests.id,
+        userId: joinRequests.userId,
+        name: users.name,
+      })
+      .from(joinRequests)
+      .innerJoin(users, eq(users.id, joinRequests.userId))
+      .where(
+        and(
+          eq(joinRequests.projectId, project.id),
+          eq(joinRequests.status, "pending")
+        )
+      )
+      .limit(20);
+    pendingJoins = pending;
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
       <div className="mb-6 flex flex-wrap justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{project.title}</h1>
+          <Contributors members={memberRows} />
           {project.description ? (
-            <p className="text-[var(--hq-muted)] mt-1 project-desc whitespace-pre-wrap">{project.description}</p>
+            <CollapsibleDescription text={project.description} />
           ) : null}
           <p className="text-xs text-[var(--hq-muted)] mt-2 capitalize">
             {project.visibility}
@@ -145,12 +181,13 @@ export default async function OpenProjectPage({ searchParams }: Props) {
       </div>
 
       {canEdit && collabToken && collabUser ? (
-        <div className="h-[min(75vh,720px)]">
+        <div className="min-h-[70vh]">
           <ProjectEditor
             projectId={project.id}
             token={collabToken}
             user={collabUser}
             canManage={canManage}
+            pendingJoins={pendingJoins}
           />
         </div>
       ) : canReadPublic && project.latestSnapshotHtml ? (

@@ -26,11 +26,13 @@ export function ProjectEditor({
   token,
   user,
   canManage = false,
+  pendingJoins = [],
 }: {
   projectId: string;
   token: string;
   user: { id: string; name: string; color: string };
   canManage?: boolean;
+  pendingJoins?: { id: string; name: string; userId: string }[];
 }) {
   const [panel, setPanel] = useState<"none" | "history" | "media" | "invite">("none");
 
@@ -46,6 +48,7 @@ export function ProjectEditor({
           onOpenHistory={() => setPanel("history")}
           onOpenMedia={() => setPanel("media")}
           onOpenInvite={canManage ? () => setPanel("invite") : undefined}
+          pendingJoins={pendingJoins}
         />
       </div>
 
