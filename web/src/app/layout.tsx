@@ -8,6 +8,8 @@ export const metadata: Metadata = {
     "Create public or private projects and work together live. Real-time collaborative editing.",
 };
 
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({
   children,
 }: {
