@@ -62,6 +62,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PendingJoinBanner } from "@/components/project/PendingJoinBanner";
 
 const TEXT_COLORS = [
   "#e8eaed",
