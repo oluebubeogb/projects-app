@@ -28,8 +28,12 @@ export const users = pgTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
+  /** unique handle: min 5 chars, letters, numbers, - _ */
+  username: text("username").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   avatarColor: text("avatar_color").notNull().default("#2563eb"),
+  /** optional profile picture path / url */
+  avatarUrl: text("avatar_url"),
   /** platform role: user | admin */
   role: text("role", { enum: ["user", "admin"] })
     .notNull()

@@ -11,7 +11,8 @@ import { eq, and, isNull } from "drizzle-orm";
 import Link from "next/link";
 import { ClientJoin } from "@/components/project/ClientJoin";
 import { AcceptInviteButton } from "@/components/project/AcceptInviteButton";
-import { CopyLinkButton } from "@/components/project/CopyLinkButton";
+import { ShareButton } from "@/components/project/ShareButton";
+import { Contributors } from "@/components/project/Contributors";
 import { Pencil } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -158,17 +159,19 @@ export default async function ProjectReadOnlyPage({
     pendingRequest = req.length > 0;
   }
 
-  // Collaborators for avatars
+  // Collaborators
   const memberRows = await db
     .select({
       name: users.name,
+      username: users.username,
       color: projectMembers.color,
       role: projectMembers.role,
+      userId: users.id,
     })
     .from(projectMembers)
     .innerJoin(users, eq(users.id, projectMembers.userId))
     .where(eq(projectMembers.projectId, project.id))
-    .limit(12);
+    .limit(40);
 
   const editHref = `/open?slug=${encodeURIComponent(slug)}`;
   const shortPath = `/p/${encodeURIComponent(slug)}`;
@@ -177,8 +180,9 @@ export default async function ProjectReadOnlyPage({
     <div className="max-w-5xl mx-auto px-4 py-8">
       <div className="mb-4">
         <h1 className="text-2xl font-bold tracking-tight">{project.title}</h1>
+        <Contributors members={memberRows} />
         {project.description ? (
-          <p className="text-[var(--hq-muted)] mt-1">{project.description}</p>
+          <p className="text-[var(--hq-muted)] mt-2 project-desc whitespace-pre-wrap">{project.description}</p>
         ) : null}
       </div>
 
@@ -204,7 +208,7 @@ export default async function ProjectReadOnlyPage({
           </div>
 
           <div className="flex items-center gap-2">
-            <CopyLinkButton path={shortPath} />
+            <ShareButton path={shortPath} title={project.title} />
             {/* Collaborators */}
             <div className="flex items-center -space-x-1.5">
               {memberRows.map((m, i) => (

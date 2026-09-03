@@ -47,11 +47,18 @@ export async function migrate() {
         id TEXT PRIMARY KEY,
         email TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
+        username TEXT UNIQUE,
         password_hash TEXT NOT NULL,
         avatar_color TEXT NOT NULL DEFAULT '#2563eb',
+        avatar_url TEXT,
         role TEXT NOT NULL DEFAULT 'user',
         created_at INTEGER NOT NULL DEFAULT (extract(epoch from now())::int)
       );
+
+      -- Backfill / add columns for existing installs
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique ON users (username) WHERE username IS NOT NULL;
 
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,

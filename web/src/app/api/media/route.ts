@@ -93,17 +93,56 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Max 8MB" }, { status: 400 });
     }
 
-    const ext = (file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
-    const filename = `${uid().slice(0, 12)}.${ext}`;
     const subdir = new Date().toISOString().slice(0, 7); // YYYY-MM
     const dir = path.join(uploadsRoot, subdir);
     fs.mkdirSync(dir, { recursive: true });
-    const dest = path.join(dir, filename);
-
     const buf = Buffer.from(await file.arrayBuffer());
-    fs.writeFileSync(dest, buf);
-
     const id = uid();
+    let filename: string;
+    let mime = file.type || "application/octet-stream";
+    let size = file.size;
+    let width: number | null = null;
+    let height: number | null = null;
+
+    const isImage = (file.type || "").startsWith("image/") && !file.type.includes("svg");
+    if (isImage) {
+      try {
+        const sharp = (await import("sharp")).default;
+        const base = uid().slice(0, 12);
+        // Produce 720 and 480 webp variants; store 720 as primary
+        const img = sharp(buf).rotate();
+        const meta = await img.metadata();
+        width = meta.width ?? null;
+        height = meta.height ?? null;
+        const webp720 = await img
+          .clone()
+          .resize({ width: 720, withoutEnlargement: true })
+          .webp({ quality: 82 })
+          .toBuffer();
+        const webp480 = await img
+          .clone()
+          .resize({ width: 480, withoutEnlargement: true })
+          .webp({ quality: 78 })
+          .toBuffer();
+        filename = `${base}.webp`;
+        const dest720 = path.join(dir, filename);
+        const dest480 = path.join(dir, `${base}-480.webp`);
+        fs.writeFileSync(dest720, webp720);
+        fs.writeFileSync(dest480, webp480);
+        mime = "image/webp";
+        size = webp720.length;
+      } catch (e) {
+        console.warn("[media] sharp failed, storing original", e);
+        const ext = (file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
+        filename = `${uid().slice(0, 12)}.${ext}`;
+        fs.writeFileSync(path.join(dir, filename), buf);
+      }
+    } else {
+      const ext = (file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
+      filename = `${uid().slice(0, 12)}.${ext}`;
+      fs.writeFileSync(path.join(dir, filename), buf);
+    }
+
     const relPath = `${subdir}/${filename}`;
 
     await db.insert(media).values({
@@ -112,9 +151,11 @@ export async function POST(req: NextRequest) {
       userId: user.id,
       filename,
       originalName: file.name,
-      mime: file.type || "application/octet-stream",
-      size: file.size,
+      mime,
+      size,
       path: relPath,
+      width: width ?? undefined,
+      height: height ?? undefined,
     });
 
     return NextResponse.json({
@@ -122,9 +163,12 @@ export async function POST(req: NextRequest) {
         id,
         filename,
         originalName: file.name,
-        mime: file.type,
-        size: file.size,
+        mime,
+        size,
+        width,
+        height,
         url: `/api/media/file?id=${id}`,
+        url480: isImage ? `/api/media/file?id=${id}&size=480` : undefined,
       },
     });
   } catch (e) {

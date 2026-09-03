@@ -34,7 +34,11 @@
     "@tiptap/extension-image": "^2.11.5",
     "@tiptap/extension-link": "^2.11.5",
     "@tiptap/extension-text-align": "^2.11.5",
-    "pg": "^8.13.3"
+    "pg": "^8.13.3",
+    "@tiptap/extension-text-style": "^2.11.5",
+    "@tiptap/extension-color": "^2.11.5",
+    "@tiptap/extension-highlight": "^2.11.5",
+    "sharp": "^0.33.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.9",

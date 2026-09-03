@@ -7,6 +7,7 @@ import Link from "next/link";
 export default function RegisterPage() {
   const router = useRouter();
   const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -20,7 +21,7 @@ export default function RegisterPage() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name, username, email, password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Registration failed");
@@ -54,6 +55,23 @@ export default function RegisterPage() {
             onChange={(e) => setName(e.target.value)}
             className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--bg)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
           />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Username</label>
+          <input
+            type="text"
+            required
+            minLength={5}
+            maxLength={32}
+            pattern="[a-zA-Z0-9_-]{5,32}"
+            value={username}
+            onChange={(e) => setUsername(e.target.value.toLowerCase())}
+            placeholder="at least 5 characters"
+            className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--bg)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+          />
+          <p className="text-xs text-[var(--text-muted)] mt-1">
+            Letters, numbers, - and _ only. Min 5 characters. Used in /u/username
+          </p>
         </div>
         <div>
           <label className="block text-sm font-medium mb-1">Email</label>

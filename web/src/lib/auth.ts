@@ -78,7 +78,9 @@ export async function getSessionUser() {
       id: user.id,
       email: user.email,
       name: user.name,
+      username: user.username,
       avatarColor: user.avatarColor,
+      avatarUrl: user.avatarUrl ?? null,
       role: (user as { role?: string }).role || "user",
     };
   } catch {
@@ -86,17 +88,39 @@ export async function getSessionUser() {
   }
 }
 
+const USERNAME_RE = /^[a-zA-Z0-9_-]{5,32}$/;
+
+export function validateUsername(username: string): string | null {
+  const u = username.trim();
+  if (u.length < 5) return "Username must be at least 5 characters";
+  if (u.length > 32) return "Username must be at most 32 characters";
+  if (!USERNAME_RE.test(u)) return "Username may only contain letters, numbers, - and _";
+  return null;
+}
+
 export async function registerUser(
   email: string,
   name: string,
-  password: string
+  password: string,
+  username: string
 ) {
+  const uname = username.trim().toLowerCase();
+  const unameErr = validateUsername(uname);
+  if (unameErr) throw new Error(unameErr);
+
   const existing = await db
     .select()
     .from(users)
     .where(eq(users.email, email.toLowerCase()))
     .limit(1);
   if (existing.length > 0) throw new Error("Email already registered");
+
+  const existingU = await db
+    .select()
+    .from(users)
+    .where(eq(users.username, uname))
+    .limit(1);
+  if (existingU.length > 0) throw new Error("Username already taken");
 
   const id = randomUUID();
   const passwordHash = await hashPassword(password);
@@ -106,11 +130,19 @@ export async function registerUser(
     id,
     email: email.toLowerCase(),
     name,
+    username: uname,
     passwordHash,
     avatarColor,
   });
 
-  return { id, email: email.toLowerCase(), name, avatarColor, role: "user" as const };
+  return {
+    id,
+    email: email.toLowerCase(),
+    name,
+    username: uname,
+    avatarColor,
+    role: "user" as const,
+  };
 }
 
 export async function loginUser(email: string, password: string) {
@@ -129,7 +161,9 @@ export async function loginUser(email: string, password: string) {
     id: user.id,
     email: user.email,
     name: user.name,
+    username: user.username,
     avatarColor: user.avatarColor,
+    avatarUrl: user.avatarUrl ?? null,
     role: (user as { role?: string }).role || "user",
   };
 }

@@ -6,13 +6,23 @@ const schema = z.object({
   name: z.string().min(1).max(80),
   email: z.string().email(),
   password: z.string().min(6).max(128),
+  username: z
+    .string()
+    .min(5)
+    .max(32)
+    .regex(/^[a-zA-Z0-9_-]+$/, "Username may only contain letters, numbers, - and _"),
 });
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const data = schema.parse(body);
-    const user = await registerUser(data.email, data.name, data.password);
+    const user = await registerUser(
+      data.email,
+      data.name,
+      data.password,
+      data.username
+    );
     await createSession(user.id);
     return NextResponse.json({ user });
   } catch (err) {

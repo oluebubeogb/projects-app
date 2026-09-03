@@ -130,7 +130,7 @@ export default async function OpenProjectPage({ searchParams }: Props) {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{project.title}</h1>
           {project.description ? (
-            <p className="text-[var(--hq-muted)] mt-1">{project.description}</p>
+            <p className="text-[var(--hq-muted)] mt-1 project-desc whitespace-pre-wrap">{project.description}</p>
           ) : null}
           <p className="text-xs text-[var(--hq-muted)] mt-2 capitalize">
             {project.visibility}

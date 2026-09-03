@@ -14,7 +14,7 @@ const CollaborativeEditor = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="h-[420px] border border-[var(--hq-border)] rounded-[var(--hq-radius)] bg-[var(--hq-surface)] flex items-center justify-center text-[var(--hq-muted)] text-sm">
+      <div className="h-[420px] bg-[var(--hq-surface)] flex items-center justify-center text-[var(--hq-muted)] text-sm">
         Loading editor…
       </div>
     ),
@@ -37,7 +37,7 @@ export function ProjectEditor({
   const close = useCallback(() => setPanel("none"), []);
 
   return (
-    <div className="flex flex-col h-full gap-3">
+    <div className="flex flex-col min-h-[70vh]">
       <div className="flex-1 min-h-0">
         <CollaborativeEditor
           projectId={projectId}
@@ -45,20 +45,9 @@ export function ProjectEditor({
           user={user}
           onOpenHistory={() => setPanel("history")}
           onOpenMedia={() => setPanel("media")}
+          onOpenInvite={canManage ? () => setPanel("invite") : undefined}
         />
       </div>
-
-      {canManage && (
-        <div className="flex gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => setPanel(panel === "invite" ? "none" : "invite")}
-            className="hq-btn hq-btn-ghost text-sm border border-[var(--hq-border)]"
-          >
-            Invite by email
-          </button>
-        </div>
-      )}
 
       {panel === "history" && (
         <CommitHistory projectId={projectId} onClose={close} />

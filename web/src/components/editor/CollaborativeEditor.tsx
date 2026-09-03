@@ -12,14 +12,15 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import TextAlign from "@tiptap/extension-text-align";
+import TextStyle from "@tiptap/extension-text-style";
+import Color from "@tiptap/extension-color";
+import Highlight from "@tiptap/extension-highlight";
 import {
   Bold,
   Italic,
   Underline as UnderlineIcon,
   Strikethrough,
-  Heading1,
   Heading2,
-  Heading3,
   List,
   ListOrdered,
   Quote,
@@ -43,12 +44,46 @@ import {
   Unlink,
   Video,
   Info,
-  Table as TableIcon,
   SeparatorHorizontal,
   FileCode,
   Type,
+  Save,
+  ALargeSmall,
+  Palette,
+  FilePlus,
+  Mail,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const TEXT_COLORS = [
+  "#e8eaed",
+  "#ef4444",
+  "#f97316",
+  "#eab308",
+  "#22c55e",
+  "#14b8a6",
+  "#3b82f6",
+  "#8b5cf6",
+  "#ec4899",
+  "#78716c",
+  "#000000",
+  "#ffffff",
+];
+
+const BG_COLORS = [
+  "transparent",
+  "#fef2f2",
+  "#fff7ed",
+  "#fefce8",
+  "#f0fdf4",
+  "#f0fdfa",
+  "#eff6ff",
+  "#f5f3ff",
+  "#fdf2f8",
+  "#f5f5f4",
+  "#1c1f2a",
+  "#0f1117",
+];
 
 type Props = {
   projectId: string;
@@ -57,6 +92,7 @@ type Props = {
   readOnly?: boolean;
   onOpenHistory?: () => void;
   onOpenMedia?: () => void;
+  onOpenInvite?: () => void;
 };
 
 export function CollaborativeEditor({
@@ -66,6 +102,7 @@ export function CollaborativeEditor({
   readOnly = false,
   onOpenHistory,
   onOpenMedia,
+  onOpenInvite,
 }: Props) {
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">(
     "connecting"
@@ -75,115 +112,57 @@ export function CollaborativeEditor({
   const [toolGroup, setToolGroup] = useState<
     "text" | "paragraph" | "align" | "insert" | "media" | "advanced"
   >("text");
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const providerRef = useRef<HocuspocusProvider | null>(null);
 
   const ydoc = useMemo(() => new Y.Doc(), []);
 
-  // Same-origin WebSocket (like collab-editor): wss://current-host/collab
-  // Prefer explicit env, otherwise derive from window.location
   const wsUrl = useMemo(() => {
-    // 1. Explicit env wins (set in Coolify build args if needed)
     if (process.env.NEXT_PUBLIC_HOCUSPOCUS_URL) {
       return process.env.NEXT_PUBLIC_HOCUSPOCUS_URL;
     }
-
-    // 2. Same-origin path — works with Coolify path proxy /collab → collab:1236
     if (typeof window !== "undefined") {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const candidate = `${protocol}//${window.location.host}/collab`;
-      console.log("[editor] using same-origin WS", candidate);
-      return candidate;
+      return `${protocol}//${window.location.host}/collab`;
     }
-
-    // 3. Local dev fallback
     return "ws://localhost:1236";
   }, []);
 
-  // Create provider once; stable deps
   const provider = useMemo(() => {
-    console.log("[editor] connecting to", wsUrl, "doc=", projectId, {
-      envUrl: process.env.NEXT_PUBLIC_HOCUSPOCUS_URL ?? "(unset)",
-      hasToken: Boolean(token && token.length > 8),
-      projectId,
-    });
-
     const p = new HocuspocusProvider({
       url: wsUrl,
       name: projectId,
       token,
       document: ydoc,
-      // Auto-reconnect
       forceSyncInterval: 20000,
     });
-
     providerRef.current = p;
     return p;
   }, [projectId, token, ydoc, wsUrl]);
 
   useEffect(() => {
     const onStatus = ({ status: s }: { status: string }) => {
-      console.log("[editor] status →", s, { wsUrl });
       if (s === "connected") setStatus("connected");
       else if (s === "disconnected") setStatus("disconnected");
       else setStatus("connecting");
     };
-
-    const onConnect = () => {
-      console.log("[editor] connected", { wsUrl, projectId });
-      setStatus("connected");
-    };
-
-    const onDisconnect = ({ event }: { event?: CloseEvent }) => {
-      console.warn("[editor] disconnected", {
-        code: event?.code,
-        reason: event?.reason,
-        wasClean: event?.wasClean,
-        wsUrl,
-      });
-      setStatus("disconnected");
-    };
-
-    const onClose = ({ event }: { event?: CloseEvent }) => {
-      console.warn("[editor] connection closed", {
-        code: event?.code,
-        reason: event?.reason,
-        wasClean: event?.wasClean,
-        wsUrl,
-      });
-      setStatus("disconnected");
-    };
-
-    const onSynced = () => {
-      console.log("[editor] synced");
-      setStatus("connected");
-    };
-
-    const onAuthenticationFailed = (data: unknown) => {
-      console.error("[editor] authentication failed", data, { wsUrl, projectId });
-      setStatus("disconnected");
-    };
-
-    const onCloseWithError = (data: unknown) => {
-      console.error("[editor] close with error", data, { wsUrl });
-      setStatus("disconnected");
-    };
+    const onConnect = () => setStatus("connected");
+    const onDisconnect = () => setStatus("disconnected");
+    const onSynced = () => setStatus("connected");
+    const onAuthFailed = () => setStatus("disconnected");
 
     provider.on("status", onStatus);
     provider.on("connect", onConnect);
     provider.on("disconnect", onDisconnect);
-    provider.on("close", onClose);
     provider.on("synced", onSynced);
-    provider.on("authenticationFailed", onAuthenticationFailed);
-    // Some versions emit "close" with error payload
-    provider.on("close", onCloseWithError);
+    provider.on("authenticationFailed", onAuthFailed);
 
-    // Force connect if not already
     if (!provider.isConnected) {
       try {
-        console.log("[editor] calling provider.connect()", { wsUrl });
         provider.connect();
-      } catch (e) {
-        console.error("[editor] connect() call failed", e, { wsUrl });
+      } catch {
+        /* ignore */
       }
     }
 
@@ -194,7 +173,6 @@ export function CollaborativeEditor({
         color: user.color,
         id: user.id,
       });
-
       const updatePeers = () => {
         const states = Array.from(awareness.getStates().values()) as {
           user?: { name: string; color: string; id?: string };
@@ -212,16 +190,11 @@ export function CollaborativeEditor({
       provider.off("status", onStatus);
       provider.off("connect", onConnect);
       provider.off("disconnect", onDisconnect);
-      provider.off("close", onClose);
       provider.off("synced", onSynced);
-      provider.off("authenticationFailed", onAuthenticationFailed);
-      provider.off("close", onCloseWithError);
-      // Do NOT destroy on every unmount during HMR — only when component truly unmounts
-      // Destroying too aggressively causes forever-connecting loops
+      provider.off("authenticationFailed", onAuthFailed);
     };
   }, [provider, user, wsUrl, projectId]);
 
-  // Cleanup on true unmount
   useEffect(() => {
     return () => {
       if (providerRef.current) {
@@ -238,9 +211,13 @@ export function CollaborativeEditor({
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        history: false, // Yjs handles history
+        history: false,
+        heading: { levels: [1, 2, 3] },
       }),
       Underline,
+      TextStyle,
+      Color,
+      Highlight.configure({ multicolor: true }),
       Image.configure({
         inline: false,
         allowBase64: false,
@@ -271,27 +248,23 @@ export function CollaborativeEditor({
     immediatelyRender: false,
     editorProps: {
       attributes: {
-        class: cn(
-          "ProseMirror focus:outline-none",
-          showMyInputs && "show-my-inputs"
-        ),
+        class: cn("ProseMirror focus:outline-none", showMyInputs && "show-my-inputs"),
       },
     },
   });
 
-
-  // Allow MediaLibrary to insert into editor
   useEffect(() => {
     if (!editor) return;
-    (window as unknown as { __projectsInsertImage?: (url: string) => void }).__projectsInsertImage = (url: string) => {
-      editor.chain().focus().setImage({ src: url }).run();
-    };
+    (window as unknown as { __projectsInsertImage?: (url: string) => void }).__projectsInsertImage =
+      (url: string) => {
+        editor.chain().focus().setImage({ src: url }).run();
+      };
     return () => {
-      delete (window as unknown as { __projectsInsertImage?: (url: string) => void }).__projectsInsertImage;
+      delete (window as unknown as { __projectsInsertImage?: (url: string) => void })
+        .__projectsInsertImage;
     };
   }, [editor]);
 
-  // Toggle class on editor when showMyInputs changes
   useEffect(() => {
     if (!editor) return;
     const el = editor.view.dom;
@@ -299,8 +272,51 @@ export function CollaborativeEditor({
     else el.classList.remove("show-my-inputs");
   }, [editor, showMyInputs]);
 
+  const doSave = useCallback(async () => {
+    if (!editor || readOnly || saving) return;
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const html = editor.getHTML();
+      const plainText = editor.getText();
+      const res = await fetch("/api/commits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          message: "Manual save",
+          html,
+          plainText,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Save failed");
+      }
+      setSaveMsg("Saved successfully");
+      setTimeout(() => setSaveMsg(null), 2500);
+    } catch (e) {
+      setSaveMsg(e instanceof Error ? e.message : "Save failed");
+      setTimeout(() => setSaveMsg(null), 3500);
+    } finally {
+      setSaving(false);
+    }
+  }, [editor, projectId, readOnly, saving]);
+
+  // Ctrl/Cmd+S
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        doSave();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [doSave]);
+
   const run = useCallback(
-    (cmd: string) => {
+    (cmd: string, value?: string) => {
       if (!editor) return;
       const chain = editor.chain().focus();
       switch (cmd) {
@@ -316,11 +332,13 @@ export function CollaborativeEditor({
         case "strike":
           chain.toggleStrike().run();
           break;
-        case "h1":
-          chain.toggleHeading({ level: 1 }).run();
-          break;
-        case "h2":
-          chain.toggleHeading({ level: 2 }).run();
+        case "h":
+          // Single heading style
+          if (editor.isActive("heading")) {
+            chain.setParagraph().run();
+          } else {
+            chain.toggleHeading({ level: 2 }).run();
+          }
           break;
         case "bullet":
           chain.toggleBulletList().run();
@@ -334,21 +352,22 @@ export function CollaborativeEditor({
         case "code":
           chain.toggleCodeBlock().run();
           break;
-        case "h3":
-          chain.toggleHeading({ level: 3 }).run();
-          break;
         case "hr":
+        case "divider":
           chain.setHorizontalRule().run();
+          break;
+        case "newPage":
+          chain
+            .setHorizontalRule()
+            .insertContent("<p></p>")
+            .run();
           break;
         case "link": {
           const prev = editor.getAttributes("link").href as string | undefined;
           const url = window.prompt("Link URL", prev || "https://");
           if (url === null) break;
-          if (url === "") {
-            chain.unsetLink().run();
-          } else {
-            chain.extendMarkRange("link").setLink({ href: url }).run();
-          }
+          if (url === "") chain.unsetLink().run();
+          else chain.extendMarkRange("link").setLink({ href: url }).run();
           break;
         }
         case "image": {
@@ -359,9 +378,12 @@ export function CollaborativeEditor({
         case "video": {
           const url = window.prompt("Video URL (YouTube / Vimeo / direct)");
           if (url) {
-            chain.focus().insertContent(
-              `<p><a href="${url}" target="_blank" rel="noopener">${url}</a></p>`
-            ).run();
+            chain
+              .focus()
+              .insertContent(
+                `<p><a href="${url}" target="_blank" rel="noopener">${url}</a></p>`
+              )
+              .run();
           }
           break;
         }
@@ -387,31 +409,35 @@ export function CollaborativeEditor({
           chain.setParagraph().run();
           break;
         case "indent":
-          // Best-effort: sink list item if in list
           chain.sinkListItem("listItem").run();
           break;
         case "outdent":
           chain.liftListItem("listItem").run();
           break;
         case "infoBlock":
-          chain.focus().insertContent(
-            '<blockquote><p><strong>Info</strong> — add details here.</p></blockquote>'
-          ).run();
+          chain
+            .focus()
+            .insertContent(
+              "<blockquote><p><strong>Info</strong> — add details here.</p></blockquote>"
+            )
+            .run();
           break;
         case "button": {
           const label = window.prompt("Button label", "Click me");
           const href = window.prompt("Button URL", "https://");
           if (label && href) {
-            chain.focus().insertContent(
-              `<p><a href="${href}" class="editor-btn">${label}</a></p>`
-            ).run();
+            chain
+              .focus()
+              .insertContent(`<p><a href="${href}" class="editor-btn">${label}</a></p>`)
+              .run();
           }
           break;
         }
         case "faq":
-          chain.focus().insertContent(
-            "<h3>Question?</h3><p>Answer goes here.</p>"
-          ).run();
+          chain
+            .focus()
+            .insertContent("<h2>Question?</h2><p>Answer goes here.</p>")
+            .run();
           break;
         case "embedHtml": {
           const html = window.prompt("Paste HTML snippet");
@@ -421,14 +447,37 @@ export function CollaborativeEditor({
         case "codeInline":
           chain.toggleCode().run();
           break;
-        case "divider":
-          chain.setHorizontalRule().run();
-          break;
         case "undo":
           chain.undo().run();
           break;
         case "redo":
           chain.redo().run();
+          break;
+        case "fontUp": {
+          // Cycle: base -> heading -> larger
+          if (editor.isActive("heading", { level: 1 })) {
+            // already largest
+          } else if (editor.isActive("heading")) {
+            chain.toggleHeading({ level: 1 }).run();
+          } else {
+            chain.toggleHeading({ level: 2 }).run();
+          }
+          break;
+        }
+        case "fontDown": {
+          if (editor.isActive("heading", { level: 1 })) {
+            chain.toggleHeading({ level: 2 }).run();
+          } else if (editor.isActive("heading")) {
+            chain.setParagraph().run();
+          }
+          break;
+        }
+        case "color":
+          if (value) chain.setColor(value).run();
+          break;
+        case "bg":
+          if (value === "transparent") chain.unsetHighlight().run();
+          else if (value) chain.setHighlight({ color: value }).run();
           break;
       }
     },
@@ -443,16 +492,18 @@ export function CollaborativeEditor({
     icon: Icon,
     label,
     active,
+    onClick,
   }: {
-    cmd: string;
+    cmd?: string;
     icon: React.ComponentType<{ size?: number }>;
     label: string;
     active?: boolean;
+    onClick?: () => void;
   }) => (
     <button
       type="button"
       title={label}
-      onClick={() => run(cmd)}
+      onClick={() => (onClick ? onClick() : cmd && run(cmd))}
       disabled={readOnly}
       className={cn(
         "p-2 rounded-md transition-colors disabled:opacity-40",
@@ -466,227 +517,381 @@ export function CollaborativeEditor({
   );
 
   return (
-    <div className="flex flex-col h-full border border-[var(--hq-border)] rounded-[var(--hq-radius)] bg-[var(--hq-surface)] shadow-sm overflow-hidden">
-      {/* Status bar */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--hq-border)] text-xs text-[var(--hq-muted)] bg-[var(--hq-sidebar)]">
-        <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              "inline-block w-2 h-2 rounded-full",
-              status === "connected"
-                ? "bg-[var(--hq-success)]"
-                : status === "connecting"
-                  ? "bg-[var(--hq-warning)] animate-pulse"
-                  : "bg-[var(--hq-danger)]"
-            )}
-          />
-          {status === "connected"
-            ? "Live"
-            : status === "connecting"
-              ? "Connecting…"
-              : "Offline"}
-          {status !== "connected" && (
+    <div className="editor-shell flex flex-col">
+      {/* Sticky chrome: status + toolbar */}
+      <div className="editor-chrome">
+        {/* Status bar */}
+        <div className="flex items-center justify-between px-3 py-2 text-xs text-[var(--hq-muted)]">
+          <div className="flex items-center gap-2">
             <span
-              className="text-[10px] opacity-70 max-w-[180px] truncate hidden sm:inline"
-              title={wsUrl}
-            >
-              → {wsUrl.replace(/^wss?:\/\//, "")}
-            </span>
-          )}
-          {status === "disconnected" && (
-            <button
-              type="button"
-              className="text-[var(--hq-accent)] underline ml-1"
-              onClick={() => {
-                try {
-                  console.log("[editor] manual retry →", wsUrl);
-                  provider.connect();
-                  setStatus("connecting");
-                } catch (e) {
-                  console.error("[editor] retry failed", e);
-                }
-              }}
-            >
-              Retry
-            </button>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Show my inputs toggle */}
-          {!readOnly && (
-            <button
-              type="button"
-              title={showMyInputs ? "Hide my input highlights" : "Show my inputs"}
-              onClick={() => setShowMyInputs((v) => !v)}
               className={cn(
-                "flex items-center gap-1 px-2 py-1 rounded-md transition-colors",
-                showMyInputs
-                  ? "bg-[var(--hq-success)]/15 text-[var(--hq-success)]"
-                  : "hover:bg-[var(--hq-hover)]"
+                "inline-block w-2 h-2 rounded-full",
+                status === "connected"
+                  ? "bg-[var(--hq-success)]"
+                  : status === "connecting"
+                    ? "bg-[var(--hq-warning)] animate-pulse"
+                    : "bg-[var(--hq-danger)]"
               )}
-            >
-              {showMyInputs ? <Eye size={14} /> : <EyeOff size={14} />}
-              <span className="hidden sm:inline">My inputs</span>
-            </button>
-          )}
-
-          {onOpenHistory && (
-            <button
-              type="button"
-              title="Commit history"
-              onClick={onOpenHistory}
-              className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-[var(--hq-hover)] transition-colors"
-            >
-              <History size={14} />
-              <span className="hidden sm:inline">History</span>
-            </button>
-          )}
-
-          {onOpenMedia && !readOnly && (
-            <button
-              type="button"
-              title="Media library"
-              onClick={onOpenMedia}
-              className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-[var(--hq-hover)] transition-colors"
-            >
-              <ImageIcon size={14} />
-              <span className="hidden sm:inline">Media</span>
-            </button>
-          )}
-
-          <div className="flex items-center gap-1 ml-1">
-            <Users size={14} className="text-[var(--hq-muted)]" />
-            <span
-              className="w-5 h-5 rounded-full text-[10px] flex items-center justify-center text-white font-bold ring-2 ring-[var(--hq-surface)]"
-              style={{ backgroundColor: user.color }}
-              title={`${user.name} (you)`}
-            >
-              {user.name[0]?.toUpperCase()}
-            </span>
-            {peers.map((p, i) => (
-              <span
-                key={`${p.name}-${i}`}
-                className="w-5 h-5 rounded-full text-[10px] flex items-center justify-center text-white font-bold ring-2 ring-[var(--hq-surface)] -ml-1"
-                style={{ backgroundColor: p.color }}
-                title={p.name}
+            />
+            {status === "connected"
+              ? "Live"
+              : status === "connecting"
+                ? "Connecting…"
+                : "Offline"}
+            {status === "disconnected" && (
+              <button
+                type="button"
+                className="text-[var(--hq-accent)] underline ml-1"
+                onClick={() => {
+                  try {
+                    provider.connect();
+                    setStatus("connecting");
+                  } catch {
+                    /* ignore */
+                  }
+                }}
               >
-                {p.name[0]?.toUpperCase()}
+                Retry
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {!readOnly && (
+              <button
+                type="button"
+                title={showMyInputs ? "Hide my input highlights" : "Show my inputs"}
+                onClick={() => setShowMyInputs((v) => !v)}
+                className={cn(
+                  "flex items-center gap-1 px-2 py-1 rounded-md transition-colors",
+                  showMyInputs
+                    ? "bg-[var(--hq-success)]/15 text-[var(--hq-success)]"
+                    : "hover:bg-[var(--hq-hover)]"
+                )}
+              >
+                {showMyInputs ? <Eye size={14} /> : <EyeOff size={14} />}
+                <span className="hidden sm:inline">My inputs</span>
+              </button>
+            )}
+
+            {onOpenHistory && (
+              <button
+                type="button"
+                title="Commit history"
+                onClick={onOpenHistory}
+                className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-[var(--hq-hover)] transition-colors"
+              >
+                <History size={14} />
+                <span className="hidden sm:inline">History</span>
+              </button>
+            )}
+
+            {onOpenInvite && (
+              <button
+                type="button"
+                title="Invite by email"
+                onClick={onOpenInvite}
+                className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-[var(--hq-hover)] transition-colors"
+              >
+                <Mail size={14} />
+                <span className="hidden sm:inline">Invite</span>
+              </button>
+            )}
+
+            {onOpenMedia && !readOnly && (
+              <button
+                type="button"
+                title="Media library"
+                onClick={onOpenMedia}
+                className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-[var(--hq-hover)] transition-colors"
+              >
+                <ImageIcon size={14} />
+                <span className="hidden sm:inline">Media</span>
+              </button>
+            )}
+
+            <div className="flex items-center gap-1 ml-1">
+              <Users size={14} className="text-[var(--hq-muted)]" />
+              <span
+                className="w-5 h-5 rounded-full text-[10px] flex items-center justify-center text-white font-bold ring-2 ring-[var(--hq-surface)]"
+                style={{ backgroundColor: user.color }}
+                title={`${user.name} (you)`}
+              >
+                {user.name[0]?.toUpperCase()}
               </span>
-            ))}
+              {peers.map((p, i) => (
+                <span
+                  key={`${p.name}-${i}`}
+                  className="w-5 h-5 rounded-full text-[10px] flex items-center justify-center text-white font-bold ring-2 ring-[var(--hq-surface)] -ml-1"
+                  style={{ backgroundColor: p.color }}
+                  title={p.name}
+                >
+                  {p.name[0]?.toUpperCase()}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
+
+        {/* Toolbar */}
+        {!readOnly && (
+          <div>
+            {/* Row 1: save + undo/redo + groups */}
+            <div className="flex flex-wrap items-center gap-0.5 px-2 pt-1 pb-0">
+              <ToolbarBtn
+                icon={Save}
+                label="Save (Ctrl+S)"
+                onClick={doSave}
+                active={saving}
+              />
+              <ToolbarBtn cmd="undo" icon={Undo} label="Undo" />
+              <ToolbarBtn cmd="redo" icon={Redo} label="Redo" />
+              <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
+              {(
+                [
+                  ["text", "Text"],
+                  ["paragraph", "Paragraph"],
+                  ["align", "Align"],
+                  ["insert", "Insert"],
+                  ["media", "Media"],
+                  ["advanced", "Advanced"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setToolGroup(id)}
+                  className={cn(
+                    "px-2.5 py-1.5 text-xs font-medium rounded-t-md transition-colors border-b-2 -mb-px",
+                    toolGroup === id
+                      ? "border-[var(--hq-accent)] text-[var(--hq-accent)] bg-[var(--hq-surface)]"
+                      : "border-transparent text-[var(--hq-muted)] hover:text-[var(--hq-text)] hover:bg-[var(--hq-hover)]"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {/* Row 2: tools + save message */}
+            <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 border-t border-[var(--hq-border)]/60 min-h-[40px]">
+              {saveMsg && (
+                <span
+                  className={cn(
+                    "text-xs mr-2 px-2 py-0.5 rounded",
+                    saveMsg.includes("success") || saveMsg === "Saved successfully"
+                      ? "text-[var(--hq-success)] bg-[var(--hq-success)]/10"
+                      : "text-[var(--hq-danger)] bg-[var(--hq-danger)]/10"
+                  )}
+                >
+                  {saveMsg}
+                </span>
+              )}
+              {toolGroup === "text" && (
+                <>
+                  <ToolbarBtn cmd="bold" icon={Bold} label="Bold" active={isActive("bold")} />
+                  <ToolbarBtn
+                    cmd="italic"
+                    icon={Italic}
+                    label="Italic"
+                    active={isActive("italic")}
+                  />
+                  <ToolbarBtn
+                    cmd="underline"
+                    icon={UnderlineIcon}
+                    label="Underline"
+                    active={isActive("underline")}
+                  />
+                  <ToolbarBtn
+                    cmd="strike"
+                    icon={Strikethrough}
+                    label="Strikethrough"
+                    active={isActive("strike")}
+                  />
+                  <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
+                  <ToolbarBtn
+                    cmd="h"
+                    icon={Heading2}
+                    label="Heading"
+                    active={isActive("heading")}
+                  />
+                  <ToolbarBtn
+                    cmd="fontUp"
+                    icon={ALargeSmall}
+                    label="Larger text"
+                  />
+                  <ToolbarBtn
+                    cmd="fontDown"
+                    icon={Type}
+                    label="Smaller text"
+                  />
+                  <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
+                  <ToolbarBtn
+                    cmd="quote"
+                    icon={Quote}
+                    label="Quote"
+                    active={isActive("blockquote")}
+                  />
+                  <ToolbarBtn
+                    cmd="codeInline"
+                    icon={Code}
+                    label="Inline code"
+                    active={isActive("code")}
+                  />
+                  <ToolbarBtn cmd="clearFormat" icon={RemoveFormatting} label="Clear formatting" />
+                  <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
+                  {/* Color */}
+                  <div className="flex items-center gap-0.5" title="Text color">
+                    <Palette size={14} className="text-[var(--hq-muted)] mr-0.5" />
+                    {TEXT_COLORS.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        className="color-swatch"
+                        style={{ backgroundColor: c }}
+                        title={c}
+                        onClick={() => run("color", c)}
+                      />
+                    ))}
+                  </div>
+                  <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
+                  {/* Background */}
+                  <div className="flex items-center gap-0.5" title="Background color">
+                    {BG_COLORS.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        className="color-swatch"
+                        style={{
+                          backgroundColor: c === "transparent" ? "transparent" : c,
+                          backgroundImage:
+                            c === "transparent"
+                              ? "linear-gradient(45deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%),linear-gradient(45deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%)"
+                              : undefined,
+                          backgroundSize: "6px 6px",
+                          backgroundPosition: "0 0, 3px 3px",
+                        }}
+                        title={c}
+                        onClick={() => run("bg", c)}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+              {toolGroup === "paragraph" && (
+                <>
+                  <ToolbarBtn
+                    cmd="paragraph"
+                    icon={Type}
+                    label="Paragraph"
+                    active={isActive("paragraph")}
+                  />
+                  <ToolbarBtn
+                    cmd="h"
+                    icon={Heading2}
+                    label="Heading"
+                    active={isActive("heading")}
+                  />
+                  <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
+                  <ToolbarBtn
+                    cmd="bullet"
+                    icon={List}
+                    label="Bullet list"
+                    active={isActive("bulletList")}
+                  />
+                  <ToolbarBtn
+                    cmd="ordered"
+                    icon={ListOrdered}
+                    label="Numbered list"
+                    active={isActive("orderedList")}
+                  />
+                  <ToolbarBtn cmd="outdent" icon={IndentDecrease} label="Decrease indent" />
+                  <ToolbarBtn cmd="indent" icon={IndentIncrease} label="Increase indent" />
+                  <ToolbarBtn cmd="hr" icon={Minus} label="Horizontal rule" />
+                </>
+              )}
+              {toolGroup === "align" && (
+                <>
+                  <ToolbarBtn
+                    cmd="alignLeft"
+                    icon={AlignLeft}
+                    label="Align left"
+                    active={editor?.isActive({ textAlign: "left" })}
+                  />
+                  <ToolbarBtn
+                    cmd="alignCenter"
+                    icon={AlignCenter}
+                    label="Align center"
+                    active={editor?.isActive({ textAlign: "center" })}
+                  />
+                  <ToolbarBtn
+                    cmd="alignRight"
+                    icon={AlignRight}
+                    label="Align right"
+                    active={editor?.isActive({ textAlign: "right" })}
+                  />
+                  <ToolbarBtn
+                    cmd="alignJustify"
+                    icon={AlignJustify}
+                    label="Justify"
+                    active={editor?.isActive({ textAlign: "justify" })}
+                  />
+                </>
+              )}
+              {toolGroup === "insert" && (
+                <>
+                  <ToolbarBtn cmd="link" icon={LinkIcon} label="Link" active={isActive("link")} />
+                  <ToolbarBtn cmd="unlink" icon={Unlink} label="Unlink" />
+                  <ToolbarBtn cmd="divider" icon={SeparatorHorizontal} label="Divider" />
+                  <ToolbarBtn
+                    cmd="newPage"
+                    icon={FilePlus}
+                    label="Insert new page (divider + continue)"
+                  />
+                  <ToolbarBtn
+                    cmd="code"
+                    icon={FileCode}
+                    label="Code block"
+                    active={isActive("codeBlock")}
+                  />
+                  <ToolbarBtn cmd="embedHtml" icon={Code} label="Embed HTML" />
+                </>
+              )}
+              {toolGroup === "media" && (
+                <>
+                  <ToolbarBtn cmd="image" icon={ImageIcon} label="Image URL" />
+                  <ToolbarBtn cmd="video" icon={Video} label="Video link" />
+                  {onOpenMedia && (
+                    <button
+                      type="button"
+                      title="Media library"
+                      onClick={onOpenMedia}
+                      className="p-2 rounded-md hover:bg-[var(--hq-hover)] text-[var(--hq-muted)] hover:text-[var(--hq-text)]"
+                    >
+                      <ImageIcon size={16} />
+                    </button>
+                  )}
+                </>
+              )}
+              {toolGroup === "advanced" && (
+                <>
+                  <ToolbarBtn
+                    cmd="code"
+                    icon={FileCode}
+                    label="Code block"
+                    active={isActive("codeBlock")}
+                  />
+                  <ToolbarBtn cmd="infoBlock" icon={Info} label="Info block" />
+                  <ToolbarBtn cmd="button" icon={LinkIcon} label="Button" />
+                  <ToolbarBtn cmd="faq" icon={Quote} label="FAQ block" />
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Toolbar — grouped like modern doc editors */}
-      {!readOnly && (
-        <div className="border-b border-[var(--hq-border)] bg-[var(--hq-sidebar)]/60">
-          {/* Row 1: groups + undo/redo */}
-          <div className="flex flex-wrap items-center gap-0.5 px-2 pt-1.5 pb-0">
-            <ToolbarBtn cmd="undo" icon={Undo} label="Undo" />
-            <ToolbarBtn cmd="redo" icon={Redo} label="Redo" />
-            <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
-            {(
-              [
-                ["text", "Text"],
-                ["paragraph", "Paragraph"],
-                ["align", "Align"],
-                ["insert", "Insert"],
-                ["media", "Media"],
-                ["advanced", "Advanced"],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setToolGroup(id)}
-                className={cn(
-                  "px-2.5 py-1.5 text-xs font-medium rounded-t-md transition-colors border-b-2 -mb-px",
-                  toolGroup === id
-                    ? "border-[var(--hq-accent)] text-[var(--hq-accent)] bg-[var(--hq-surface)]"
-                    : "border-transparent text-[var(--hq-muted)] hover:text-[var(--hq-text)] hover:bg-[var(--hq-hover)]"
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {/* Row 2: tools for active group */}
-          <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 border-t border-[var(--hq-border)]/60">
-            {toolGroup === "text" && (
-              <>
-                <ToolbarBtn cmd="bold" icon={Bold} label="Bold" active={isActive("bold")} />
-                <ToolbarBtn cmd="italic" icon={Italic} label="Italic" active={isActive("italic")} />
-                <ToolbarBtn cmd="underline" icon={UnderlineIcon} label="Underline" active={isActive("underline")} />
-                <ToolbarBtn cmd="strike" icon={Strikethrough} label="Strikethrough" active={isActive("strike")} />
-                <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
-                <ToolbarBtn cmd="h2" icon={Heading2} label="Heading" active={isActive("heading", { level: 2 })} />
-                <ToolbarBtn cmd="quote" icon={Quote} label="Quote" active={isActive("blockquote")} />
-                <ToolbarBtn cmd="codeInline" icon={Code} label="Inline code" active={isActive("code")} />
-                <ToolbarBtn cmd="clearFormat" icon={RemoveFormatting} label="Clear formatting" />
-              </>
-            )}
-            {toolGroup === "paragraph" && (
-              <>
-                <ToolbarBtn cmd="paragraph" icon={Type} label="Paragraph" active={isActive("paragraph")} />
-                <ToolbarBtn cmd="h1" icon={Heading1} label="Heading 1" active={isActive("heading", { level: 1 })} />
-                <ToolbarBtn cmd="h2" icon={Heading2} label="Heading 2" active={isActive("heading", { level: 2 })} />
-                <ToolbarBtn cmd="h3" icon={Heading3} label="Heading 3" active={isActive("heading", { level: 3 })} />
-                <span className="w-px h-5 bg-[var(--hq-border)] mx-1" />
-                <ToolbarBtn cmd="bullet" icon={List} label="Bullet list" active={isActive("bulletList")} />
-                <ToolbarBtn cmd="ordered" icon={ListOrdered} label="Numbered list" active={isActive("orderedList")} />
-                <ToolbarBtn cmd="outdent" icon={IndentDecrease} label="Decrease indent" />
-                <ToolbarBtn cmd="indent" icon={IndentIncrease} label="Increase indent" />
-                <ToolbarBtn cmd="hr" icon={Minus} label="Horizontal rule" />
-              </>
-            )}
-            {toolGroup === "align" && (
-              <>
-                <ToolbarBtn cmd="alignLeft" icon={AlignLeft} label="Align left" active={editor?.isActive({ textAlign: "left" })} />
-                <ToolbarBtn cmd="alignCenter" icon={AlignCenter} label="Align center" active={editor?.isActive({ textAlign: "center" })} />
-                <ToolbarBtn cmd="alignRight" icon={AlignRight} label="Align right" active={editor?.isActive({ textAlign: "right" })} />
-                <ToolbarBtn cmd="alignJustify" icon={AlignJustify} label="Justify" active={editor?.isActive({ textAlign: "justify" })} />
-              </>
-            )}
-            {toolGroup === "insert" && (
-              <>
-                <ToolbarBtn cmd="link" icon={LinkIcon} label="Link" active={isActive("link")} />
-                <ToolbarBtn cmd="unlink" icon={Unlink} label="Unlink" />
-                <ToolbarBtn cmd="divider" icon={SeparatorHorizontal} label="Divider" />
-                <ToolbarBtn cmd="code" icon={FileCode} label="Code block" active={isActive("codeBlock")} />
-                <ToolbarBtn cmd="embedHtml" icon={Code} label="Embed HTML" />
-              </>
-            )}
-            {toolGroup === "media" && (
-              <>
-                <ToolbarBtn cmd="image" icon={ImageIcon} label="Image URL" />
-                <ToolbarBtn cmd="video" icon={Video} label="Video link" />
-                {onOpenMedia && (
-                  <button
-                    type="button"
-                    title="Media library"
-                    onClick={onOpenMedia}
-                    className="p-2 rounded-md hover:bg-[var(--hq-hover)] text-[var(--hq-muted)] hover:text-[var(--hq-text)]"
-                  >
-                    <ImageIcon size={16} />
-                  </button>
-                )}
-              </>
-            )}
-            {toolGroup === "advanced" && (
-              <>
-                <ToolbarBtn cmd="code" icon={FileCode} label="Code block" active={isActive("codeBlock")} />
-                <ToolbarBtn cmd="infoBlock" icon={Info} label="Info block" />
-                <ToolbarBtn cmd="button" icon={LinkIcon} label="Button" />
-                <ToolbarBtn cmd="faq" icon={Quote} label="FAQ block" />
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Editor body */}
-      <div className="flex-1 overflow-y-auto">
+      {/* Editor body — free scrolling document */}
+      <div className="flex-1">
         <EditorContent editor={editor} />
       </div>
     </div>
