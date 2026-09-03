@@ -363,8 +363,8 @@ export function CollaborativeEditor({
     if (!editor || readOnly) return;
     const { state, size } = getTextSizeState();
     const defaultSize = editor.state.selection.$from.parent.type.name === "paragraph" ? 17 : 21;
-    const step = defaultSize === 10 ? 4 : 2;
-    const next = state === "default" ? defaultSize + step : state === "up" ? defaultSize : defaultSize - (defaultSize === 10 ? 2 : step);
+    const step = 2;
+    const next = state === "default" ? defaultSize + step : state === "up" ? defaultSize : defaultSize - step;
     if (Math.abs(next - defaultSize) < 0.1) editor.chain().focus().setMark("textStyle", { fontSize: `${defaultSize}px` }).run();
     else editor.chain().focus().setMark("textStyle", { fontSize: `${next}px` }).run();
   }, [editor, readOnly, getTextSizeState]);
