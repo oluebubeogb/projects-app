@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  serverExternalPackages: ["pg", "pg-native"],
+  serverExternalPackages: ["pg", "pg-native", "pdfkit"],
   outputFileTracingIncludes: {
     "/*": [
       "./node_modules/pg/**/*",
@@ -14,6 +14,8 @@ const nextConfig: NextConfig = {
       "./node_modules/postgres-bytea/**/*",
       "./node_modules/postgres-date/**/*",
       "./node_modules/postgres-interval/**/*",
+      // pdfkit font data (required for Helvetica, etc.)
+      "./node_modules/pdfkit/js/data/**/*",
     ],
   },
   experimental: {
