@@ -55,7 +55,6 @@ import {
   Maximize2,
   Minimize2,
   Save,
-  ALargeSmall,
   FilePlus,
   Mail,
   Table as TableIcon,
@@ -624,7 +623,7 @@ export function CollaborativeEditor({
           break;
       }
     },
-    [editor, tableRows, tableCols, cycleTextSize]
+    [editor, tableRows, tableCols, bumpFontSize]
   );
 
   const isActive = (name: string, attrs?: Record<string, unknown>) =>
