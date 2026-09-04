@@ -104,4 +104,4 @@ services:
 volumes:
   projects-data:
   postgres-data:
-  redis-data
+  redis-data:
