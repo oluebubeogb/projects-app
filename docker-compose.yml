@@ -83,7 +83,26 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # pgAdmin — same network as postgres → host "postgres" / port 5433 works
+  # Coolify: domain https://pga.project.collab.name.ng on this service (port 80)
+  pgadmin:
+    image: 'dpage/pgadmin4:latest'
+    environment:
+      PGADMIN_DEFAULT_EMAIL: '${PGADMIN_DEFAULT_EMAIL:-admin@mova.cms}'
+      PGADMIN_DEFAULT_PASSWORD: '${PGADMIN_DEFAULT_PASSWORD:-change-me-pgadmin}'
+      PGADMIN_CONFIG_SERVER_MODE: 'True'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    volumes:
+      - 'pgadmin-data:/var/lib/pgadmin'
+    expose:
+      - '80'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    
 volumes:
   projects-data:
   postgres-data:
   redis-data:
+  pgadmin-data:
