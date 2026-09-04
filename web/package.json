@@ -8,6 +8,7 @@
     "start": "next start --port 3010",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/lib/db/migrate.ts",
+    "db:seed": "tsx src/lib/db/seed-cli.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {

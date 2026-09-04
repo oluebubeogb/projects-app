@@ -304,10 +304,20 @@ let migratePromise: Promise<void> | null = null;
 
 export function ensureMigrated() {
   if (!migratePromise) {
-    migratePromise = migrate().catch((e) => {
-      console.error("DB migrate error:", e);
-      migratePromise = null;
-    });
+    migratePromise = migrate()
+      .then(async () => {
+        // Optional demo content — controlled by env flags
+        // SEED_DEMO=1  → insert placeholder users/projects/forums/messages
+        // CLEAR_DEMO=1 → wipe only demo rows first
+        if (process.env.SEED_DEMO === "1" || process.env.CLEAR_DEMO === "1") {
+          const { runDemoSeedFromEnv } = await import("./seed-demo");
+          await runDemoSeedFromEnv();
+        }
+      })
+      .catch((e) => {
+        console.error("DB migrate error:", e);
+        migratePromise = null;
+      });
   }
   return migratePromise;
 }

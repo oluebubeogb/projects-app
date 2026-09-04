@@ -52,6 +52,9 @@ services:
       NEXT_PUBLIC_HOCUSPOCUS_URL: ${NEXT_PUBLIC_HOCUSPOCUS_URL:-}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
       PORT: "3010"
+      # Demo content: set SEED_DEMO=1 (and optionally CLEAR_DEMO=1) in .env
+      SEED_DEMO: ${SEED_DEMO:-}
+      CLEAR_DEMO: ${CLEAR_DEMO:-}
     volumes:
       - projects-data:/data
     depends_on:

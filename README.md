@@ -130,3 +130,46 @@ UPDATE users SET role = 'admin' WHERE email = 'you@example.com';
 - **Messages** at `/messages` — DMs, optional `?to=username`.
 - **WebRTC stubs** — `CallPanel` uses `getUserMedia` / `getDisplayMedia` + HTTP signaling at `/api/calls/:id/signal` (in-memory; use Redis for multi-instance).
 - Schema auto-migrates on web start (`ensureMigrated` / `npm run db:migrate -w web`).
+
+---
+
+## Demo / placeholder content
+
+One-line control on deploy / redeploy:
+
+```bash
+# Seed on startup (idempotent — skips if demo users already exist)
+SEED_DEMO=1
+
+# Wipe only demo rows then re-seed
+CLEAR_DEMO=1 SEED_DEMO=1
+```
+
+Or via CLI (after Postgres is up):
+
+```bash
+npm run db:seed -w web                     # seed
+CLEAR_DEMO=1 npm run db:seed -w web        # wipe demo only
+CLEAR_DEMO=1 SEED_DEMO=1 npm run db:seed -w web
+```
+
+**What gets created**
+
+| Item | Count | Notes |
+|------|-------|-------|
+| Users | 5 | Nigerian names · `c1@mova.cms` … `c5@mova.cms` |
+| Projects | 10 | 8 public · 2 private · each has owner + 2 contributors |
+| Forums | 4 | 3 public · 1 private · with discussion threads |
+| DMs | 3 conversations | Realistic back-and-forth between accounts |
+
+**Login credentials** — password for each account is its own email:
+
+| Email | Password | Username |
+|-------|----------|----------|
+| c1@mova.cms | c1@mova.cms | chinedu_ok |
+| c2@mova.cms | c2@mova.cms | aisha_bello |
+| c3@mova.cms | c3@mova.cms | emeka_nwosu |
+| c4@mova.cms | c4@mova.cms | fatima_ibrahim |
+| c5@mova.cms | c5@mova.cms | tunde_adebayo |
+
+All demo rows use ids prefixed `demo-` so they can be removed safely without touching real data.
