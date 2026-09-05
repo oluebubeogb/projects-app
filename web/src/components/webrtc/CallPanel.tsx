@@ -12,6 +12,11 @@ import {
   PhoneIncoming,
   Volume2,
   PhoneCall,
+  Maximize2,
+  Minimize2,
+  PanelLeft,
+  X,
+  Expand,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +35,19 @@ const RINGTONE_LABELS: Record<RingtoneId, string> = {
   soft: "Soft wave",
 };
 
-const RING_TIMEOUT_MS = 180_000; // 3 minutes
+const RING_TIMEOUT_MS = 180_000;
+
+const SCREEN_CONSTRAINTS: MediaTrackConstraints = {
+  width: { ideal: 1280, max: 1920 },
+  height: { ideal: 720, max: 1080 },
+  frameRate: { ideal: 15, max: 24 },
+};
+
+const CAM_CONSTRAINTS: MediaTrackConstraints = {
+  width: { ideal: 640, max: 1280 },
+  height: { ideal: 480, max: 720 },
+  frameRate: { ideal: 24, max: 30 },
+};
 
 function createRingtonePlayer(id: RingtoneId) {
   let ctx: AudioContext | null = null;
@@ -100,7 +117,87 @@ function playNotificationTone() {
   } catch {}
 }
 
-type RemoteMedia = { peerId: string; stream: MediaStream };
+type RemoteMedia = {
+  peerId: string;
+  stream: MediaStream;
+  name?: string;
+  avatarUrl?: string | null;
+  avatarColor?: string;
+  isScreen?: boolean;
+};
+
+type ViewMode = "inline" | "call" | "sidebar";
+
+function shortLabel(id: string, name?: string) {
+  if (name && name.trim()) return name.trim();
+  if (!id || id === "local") return "You";
+  if (id === "host") return "Host";
+  return id.length > 10 ? id.slice(0, 6) + "…" : id;
+}
+
+function StableVideo({
+  stream,
+  muted = false,
+  className,
+  mirror = false,
+}: {
+  stream: MediaStream | null;
+  muted?: boolean;
+  className?: string;
+  mirror?: boolean;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const lastStreamId = useRef<string | null>(null);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    const sid = stream?.id ?? null;
+    if (sid === lastStreamId.current) return;
+    lastStreamId.current = sid;
+    if (stream) {
+      el.srcObject = stream;
+      el.play().catch(() => {});
+    } else {
+      el.srcObject = null;
+    }
+  }, [stream]);
+
+  return (
+    <video
+      ref={videoRef}
+      autoPlay
+      playsInline
+      muted={muted}
+      className={cn(className, mirror && "scale-x-[-1]")}
+    />
+  );
+}
+
+async function captureLastFrame(track: MediaStreamTrack): Promise<string | null> {
+  try {
+    const stream = new MediaStream([track]);
+    const video = document.createElement("video");
+    video.srcObject = stream;
+    video.muted = true;
+    video.playsInline = true;
+    await video.play().catch(() => {});
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const w = video.videoWidth || 640;
+    const h = video.videoHeight || 360;
+    if (!w || !h) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.min(w, 1280);
+    canvas.height = Math.min(h, 720);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    video.srcObject = null;
+    return canvas.toDataURL("image/jpeg", 0.7);
+  } catch {
+    return null;
+  }
+}
 
 export function CallPanel({ kind = "dm", contextId, className, compact = false }: Props) {
   const [roomId, setRoomId] = useState<string | null>(null);
@@ -118,11 +215,15 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   });
   const [showRingtonePicker, setShowRingtonePicker] = useState(false);
   const [ringSecondsLeft, setRingSecondsLeft] = useState(180);
+  const [viewMode, setViewMode] = useState<ViewMode>("inline");
+  const [focusedPeerId, setFocusedPeerId] = useState<string | null>(null);
+  const [stoppedFrames, setStoppedFrames] = useState<Record<string, string>>({});
+  const [myName] = useState<string>("You");
+  const [peerNames, setPeerNames] = useState<Record<string, { name?: string; avatarUrl?: string | null; avatarColor?: string }>>({});
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
-  // Host: one PC per remote peer. Guest: single PC to host.
   const hostPcsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const guestPcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -138,6 +239,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   const myIdRef = useRef<string | null>(null);
   const declinedRoomsRef = useRef<Set<string>>(new Set());
   const remoteStreamsRef = useRef<Map<string, MediaStream>>(new Map());
+  const screenTrackRef = useRef<MediaStreamTrack | null>(null);
 
   useEffect(() => {
     statusRef.current = status;
@@ -165,15 +267,27 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   const updateRemoteMedias = useCallback(() => {
     const list: RemoteMedia[] = [];
     remoteStreamsRef.current.forEach((stream, peerId) => {
-      list.push({ peerId, stream });
+      const info = peerNames[peerId];
+      const hasVideo = stream.getVideoTracks().some((t) => t.readyState === "live");
+      const isScreen = stream.getVideoTracks().some((t) => {
+        const s = t.getSettings() as { displaySurface?: string };
+        return !!(s.displaySurface || t.label.toLowerCase().includes("screen"));
+      });
+      list.push({
+        peerId,
+        stream,
+        name: info?.name,
+        avatarUrl: info?.avatarUrl,
+        avatarColor: info?.avatarColor,
+        isScreen: isScreen && hasVideo,
+      });
     });
     setRemoteMedias(list);
-    // Mix first remote audio into hidden audio element
     if (remoteAudioRef.current && list[0]) {
       remoteAudioRef.current.srcObject = list[0].stream;
       remoteAudioRef.current.play().catch(() => {});
     }
-  }, []);
+  }, [peerNames]);
 
   const cleanupMedia = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -184,10 +298,14 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     guestPcRef.current = null;
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
+    screenTrackRef.current = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
     remoteStreamsRef.current.clear();
     setRemoteMedias([]);
+    setStoppedFrames({});
+    setFocusedPeerId(null);
+    setViewMode("inline");
     stopRingtone();
   }, [stopRingtone]);
 
@@ -237,7 +355,17 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     pc.ontrack = (e) => {
       const stream = e.streams[0];
       if (!stream) return;
-      remoteStreamsRef.current.set(peerId, stream);
+      const prev = remoteStreamsRef.current.get(peerId);
+      if (prev && prev.id !== stream.id) {
+        stream.getTracks().forEach((t) => {
+          if (!prev.getTracks().some((pt) => pt.id === t.id)) {
+            prev.addTrack(t);
+          }
+        });
+        remoteStreamsRef.current.set(peerId, prev);
+      } else {
+        remoteStreamsRef.current.set(peerId, stream);
+      }
       updateRemoteMedias();
     };
     attachLocalTracks(pc);
@@ -256,7 +384,17 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     pc.ontrack = (e) => {
       const stream = e.streams[0];
       if (!stream) return;
-      remoteStreamsRef.current.set("host", stream);
+      const prev = remoteStreamsRef.current.get("host");
+      if (prev && prev.id !== stream.id) {
+        stream.getTracks().forEach((t) => {
+          if (!prev.getTracks().some((pt) => pt.id === t.id)) {
+            prev.addTrack(t);
+          }
+        });
+        remoteStreamsRef.current.set("host", prev);
+      } else {
+        remoteStreamsRef.current.set("host", stream);
+      }
       updateRemoteMedias();
     };
     attachLocalTracks(pc);
@@ -271,7 +409,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
         noiseSuppression: true,
         autoGainControl: true,
       },
-      video: video ? { width: 640, height: 480 } : false,
+      video: video ? CAM_CONSTRAINTS : false,
     });
     localStreamRef.current = stream;
     if (localVideoRef.current) localVideoRef.current.srcObject = stream;
@@ -301,9 +439,19 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     payload: unknown;
   }) {
     try {
-      // Host receives join-request from a participant → create PC + offer for them
       if (s.type === "join-request" && isHostRef.current) {
         const peerId = s.from;
+        const payload = (s.payload || {}) as { name?: string; avatarUrl?: string | null; avatarColor?: string };
+        if (payload.name || payload.avatarUrl) {
+          setPeerNames((prev) => ({
+            ...prev,
+            [peerId]: {
+              name: payload.name,
+              avatarUrl: payload.avatarUrl,
+              avatarColor: payload.avatarColor,
+            },
+          }));
+        }
         const pc = createHostPc(peerId);
         const offer = await pc.createOffer({
           offerToReceiveAudio: true,
@@ -314,7 +462,6 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
         return;
       }
 
-      // Guest receives offer (targeted or broadcast)
       if (s.type === "offer" && !isHostRef.current) {
         const pc = guestPcRef.current || createGuestPc();
         await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
@@ -327,7 +474,6 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
         return;
       }
 
-      // Host receives answer from a specific peer
       if (s.type === "answer" && isHostRef.current) {
         const pc = hostPcsRef.current.get(s.from);
         if (pc) {
@@ -354,7 +500,6 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
         return;
       }
 
-      // Peer left — host cleans their PC; room stays open
       if (s.type === "leave") {
         if (isHostRef.current) {
           const pc = hostPcsRef.current.get(s.from);
@@ -363,18 +508,21 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
             hostPcsRef.current.delete(s.from);
           }
           remoteStreamsRef.current.delete(s.from);
+          setStoppedFrames((prev) => {
+            const next = { ...prev };
+            delete next[s.from];
+            return next;
+          });
           updateRemoteMedias();
         }
         return;
       }
 
-      // Whole room ended
       if (s.type === "hangup") {
         leaveCall(false, true);
         return;
       }
 
-      // Renegotiation for screen/cam (host → specific peer or guest)
       if (s.type === "renegotiate-offer") {
         const pc = isHostRef.current
           ? hostPcsRef.current.get(s.from)
@@ -399,6 +547,14 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
           await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
         }
       }
+
+      if (s.type === "peer-info") {
+        const p = (s.payload || {}) as { name?: string; avatarUrl?: string | null; avatarColor?: string };
+        setPeerNames((prev) => ({
+          ...prev,
+          [s.from]: { name: p.name, avatarUrl: p.avatarUrl, avatarColor: p.avatarColor },
+        }));
+      }
     } catch (err) {
       console.warn("[call signal]", err);
     }
@@ -416,7 +572,6 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     }, 1000);
     ringTimeoutRef.current = setTimeout(() => {
       stopRingtone();
-      // Only clear ringing UI — do not kill a live call
       if (statusRef.current === "ringing") {
         setIncoming((cur) => (cur?.id === roomIdToExpire ? null : cur));
         setStatus("idle");
@@ -424,7 +579,6 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     }, RING_TIMEOUT_MS);
   }
 
-  // Discover open / live rooms — ring for open, show Join for live
   useEffect(() => {
     if (!contextId) return;
 
@@ -442,7 +596,6 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
           createdAt: number;
         }[];
 
-        // Already in a call — ignore
         if (roomIdRef.current || statusRef.current === "live" || statusRef.current === "connecting") {
           return;
         }
@@ -453,7 +606,6 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
             r.hostId !== me &&
             !declinedRoomsRef.current.has(r.id)
         );
-        // Live rooms can always be joined/rejoined (even if ring was declined)
         const liveRoom = rooms.find((r) => r.status === "live" && r.hostId !== me);
 
         if (ringing && statusRef.current === "idle") {
@@ -461,17 +613,14 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
           setStatus("ringing");
           beginRingTimeout(ringing.id, true);
         } else if (liveRoom && statusRef.current === "idle") {
-          // Ongoing call others can still join — no ring, just join affordance
           stopRingtone();
           setIncoming({ id: liveRoom.id, hostId: liveRoom.hostId, status: "live" });
-          // stay idle visually but show join via incoming banner with status live
           setStatus("idle");
         } else if (!ringing && !liveRoom && statusRef.current === "ringing") {
           stopRingtone();
           setIncoming(null);
           setStatus("idle");
         } else if (liveRoom && statusRef.current === "ringing") {
-          // Someone answered — stop MY ring but keep ability to join
           stopRingtone();
           setIncoming({ id: liveRoom.id, hostId: liveRoom.hostId, status: "live" });
           setStatus("idle");
@@ -505,8 +654,8 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
 
       await getLocalStream(false);
       startPolling(data.id);
-      // Host waits for join-request from each peer (works for 1:1 and groups)
       setStatus("live");
+      setViewMode("call");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Could not start call";
       setError(msg);
@@ -526,15 +675,16 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
       await getLocalStream(false);
       createGuestPc();
       startPolling(targetRoomId);
-      // Ask host for an offer
-      await postSignal(targetRoomId, "join-request", {});
-      // Mark room live so it stays open for others
+      await postSignal(targetRoomId, "join-request", {
+        name: myName !== "You" ? myName : undefined,
+      });
       fetch("/api/calls", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: targetRoomId, status: "live" }),
       }).catch(() => {});
       setStatus("live");
+      setViewMode("call");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Could not join";
       setError(msg);
@@ -550,7 +700,6 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
 
   function declineIncoming() {
     if (incoming) {
-      // Only decline for this user — room stays active for others
       declinedRoomsRef.current.add(incoming.id);
     }
     stopRingtone();
@@ -558,7 +707,6 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     setStatus("idle");
   }
 
-  /** Leave without ending the room for everyone */
   function leaveCall(notifyLeave = true, forcedHangup = false) {
     const rid = roomIdRef.current;
     if (rid && notifyLeave && !forcedHangup) {
@@ -568,9 +716,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
       postSignal(rid, "hangup", {}).catch(() => {});
       fetch(`/api/calls?id=${encodeURIComponent(rid)}`, { method: "DELETE" }).catch(() => {});
     }
-    // Host ending entirely
     if (isHostRef.current && rid && !forcedHangup) {
-      // If host leaves, end room for everyone (star topology needs host)
       postSignal(rid, "hangup", {}).catch(() => {});
       fetch(`/api/calls?id=${encodeURIComponent(rid)}`, { method: "DELETE" }).catch(() => {});
     }
@@ -623,14 +769,17 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     if (!localStreamRef.current) return;
     if (camOn) {
       localStreamRef.current.getVideoTracks().forEach((t) => {
-        t.stop();
-        localStreamRef.current?.removeTrack(t);
-        const removeFrom = (pc: RTCPeerConnection) => {
-          const sender = pc.getSenders().find((s) => s.track?.id === t.id);
-          if (sender) pc.removeTrack(sender);
-        };
-        hostPcsRef.current.forEach(removeFrom);
-        if (guestPcRef.current) removeFrom(guestPcRef.current);
+        const settings = t.getSettings() as { displaySurface?: string };
+        if (!settings.displaySurface && !t.label.toLowerCase().includes("screen")) {
+          t.stop();
+          localStreamRef.current?.removeTrack(t);
+          const removeFrom = (pc: RTCPeerConnection) => {
+            const sender = pc.getSenders().find((s) => s.track?.id === t.id);
+            if (sender) pc.removeTrack(sender);
+          };
+          hostPcsRef.current.forEach(removeFrom);
+          if (guestPcRef.current) removeFrom(guestPcRef.current);
+        }
       });
       setCamOn(false);
       await renegotiateAll();
@@ -638,7 +787,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     }
     try {
       const vs = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480 },
+        video: CAM_CONSTRAINTS,
       });
       const track = vs.getVideoTracks()[0];
       localStreamRef.current.addTrack(track);
@@ -655,28 +804,56 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   async function toggleShare() {
     if (!localStreamRef.current) return;
     if (sharing) {
-      localStreamRef.current.getVideoTracks().forEach((t) => {
-        const settings = t.getSettings() as { displaySurface?: string };
-        if (settings.displaySurface || t.label.toLowerCase().includes("screen")) {
-          t.stop();
-          localStreamRef.current?.removeTrack(t);
-          const removeFrom = (pc: RTCPeerConnection) => {
-            const sender = pc.getSenders().find((s) => s.track?.id === t.id);
-            if (sender) pc.removeTrack(sender);
-          };
-          hostPcsRef.current.forEach(removeFrom);
-          if (guestPcRef.current) removeFrom(guestPcRef.current);
+      const track = screenTrackRef.current;
+      if (track) {
+        const frame = await captureLastFrame(track.clone());
+        if (frame) {
+          setStoppedFrames((prev) => ({ ...prev, local: frame }));
         }
-      });
+        track.stop();
+        localStreamRef.current.removeTrack(track);
+        const removeFrom = (pc: RTCPeerConnection) => {
+          const sender = pc.getSenders().find((s) => s.track?.id === track.id);
+          if (sender) pc.removeTrack(sender);
+        };
+        hostPcsRef.current.forEach(removeFrom);
+        if (guestPcRef.current) removeFrom(guestPcRef.current);
+        screenTrackRef.current = null;
+      } else {
+        localStreamRef.current.getVideoTracks().forEach((t) => {
+          const settings = t.getSettings() as { displaySurface?: string };
+          if (settings.displaySurface || t.label.toLowerCase().includes("screen")) {
+            t.stop();
+            localStreamRef.current?.removeTrack(t);
+            const removeFrom = (pc: RTCPeerConnection) => {
+              const sender = pc.getSenders().find((s) => s.track?.id === t.id);
+              if (sender) pc.removeTrack(sender);
+            };
+            hostPcsRef.current.forEach(removeFrom);
+            if (guestPcRef.current) removeFrom(guestPcRef.current);
+          }
+        });
+      }
       setSharing(false);
       await renegotiateAll();
       return;
     }
     try {
-      const ds = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const ds = await navigator.mediaDevices.getDisplayMedia({
+        video: SCREEN_CONSTRAINTS,
+        audio: false,
+      });
       const track = ds.getVideoTracks()[0];
-      track.onended = () => {
+      try {
+        await track.applyConstraints(SCREEN_CONSTRAINTS);
+      } catch {}
+      screenTrackRef.current = track;
+      track.onended = async () => {
         setSharing(false);
+        const frame = await captureLastFrame(track.clone());
+        if (frame) {
+          setStoppedFrames((prev) => ({ ...prev, local: frame }));
+        }
         localStreamRef.current?.removeTrack(track);
         const removeFrom = (pc: RTCPeerConnection) => {
           const sender = pc.getSenders().find((s) => s.track?.id === track.id);
@@ -684,13 +861,29 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
         };
         hostPcsRef.current.forEach(removeFrom);
         if (guestPcRef.current) removeFrom(guestPcRef.current);
+        screenTrackRef.current = null;
         renegotiateAll();
       };
+      const tryReplace = (pc: RTCPeerConnection) => {
+        const videoSender = pc.getSenders().find((s) => s.track?.kind === "video");
+        if (videoSender) {
+          videoSender.replaceTrack(track).catch(() => {
+            pc.addTrack(track, localStreamRef.current!);
+          });
+        } else {
+          pc.addTrack(track, localStreamRef.current!);
+        }
+      };
       localStreamRef.current.addTrack(track);
-      hostPcsRef.current.forEach((pc) => pc.addTrack(track, localStreamRef.current!));
-      if (guestPcRef.current) guestPcRef.current.addTrack(track, localStreamRef.current);
+      hostPcsRef.current.forEach(tryReplace);
+      if (guestPcRef.current) tryReplace(guestPcRef.current);
       if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
       setSharing(true);
+      setStoppedFrames((prev) => {
+        const next = { ...prev };
+        delete next.local;
+        return next;
+      });
       await renegotiateAll();
     } catch {
       /* cancelled */
@@ -710,7 +903,45 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   const showJoinLive = !inCall && incoming?.status === "live";
   const showIncomingRing = status === "ringing" && incoming?.status === "open";
 
-  // ——— Compact ———
+  const allTiles: {
+    id: string;
+    stream: MediaStream | null;
+    name: string;
+    avatarUrl?: string | null;
+    avatarColor?: string;
+    isLocal: boolean;
+    isScreen?: boolean;
+    stoppedFrame?: string;
+  }[] = [];
+
+  allTiles.push({
+    id: "local",
+    stream: localStreamRef.current,
+    name: shortLabel("local", myName),
+    isLocal: true,
+    isScreen: sharing,
+    stoppedFrame: stoppedFrames.local,
+  });
+
+  remoteMedias.forEach((rm) => {
+    const hasLiveVideo = rm.stream.getVideoTracks().some((t) => t.readyState === "live");
+    allTiles.push({
+      id: rm.peerId,
+      stream: hasLiveVideo ? rm.stream : null,
+      name: shortLabel(rm.peerId, rm.name || peerNames[rm.peerId]?.name),
+      avatarUrl: rm.avatarUrl || peerNames[rm.peerId]?.avatarUrl,
+      avatarColor: rm.avatarColor || peerNames[rm.peerId]?.avatarColor,
+      isLocal: false,
+      isScreen: rm.isScreen,
+      stoppedFrame: !hasLiveVideo ? stoppedFrames[rm.peerId] : undefined,
+    });
+  });
+
+  const focused =
+    focusedPeerId && allTiles.find((t) => t.id === focusedPeerId)
+      ? allTiles.find((t) => t.id === focusedPeerId)!
+      : allTiles.find((t) => t.isScreen && t.stream) || allTiles[0];
+
   if (compact) {
     return (
       <div className={cn("relative inline-flex", className)}>
@@ -736,7 +967,366 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     );
   }
 
-  // ——— Full ———
+  const Toolbar = ({ dense = false }: { dense?: boolean }) => (
+    <div className={cn("flex flex-wrap items-center gap-1.5", dense && "gap-1")}>
+      {!inCall ? (
+        <>
+          <button
+            type="button"
+            onClick={startCall}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--hq-accent)] text-white text-xs font-medium hover:bg-[var(--hq-accent-hover)]"
+          >
+            <Phone size={14} />
+            Start call
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowRingtonePicker((v) => !v)}
+            className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[var(--hq-muted)] hover:bg-[var(--hq-hover)] text-xs"
+          >
+            <Volume2 size={14} />
+            {RINGTONE_LABELS[ringtone]}
+          </button>
+        </>
+      ) : (
+        <>
+          <span
+            className={cn(
+              "text-xs font-medium px-2 py-0.5 rounded-full",
+              status === "live" ? "bg-emerald-500/15 text-emerald-600" : "bg-amber-500/15 text-amber-600"
+            )}
+          >
+            {status === "live" ? "In call" : "Connecting…"}
+          </span>
+          <button
+            type="button"
+            onClick={toggleMute}
+            className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]"
+            title={muted ? "Unmute" : "Mute"}
+          >
+            {muted ? <MicOff size={16} /> : <Mic size={16} />}
+          </button>
+          <button
+            type="button"
+            onClick={toggleCam}
+            className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]"
+            title="Camera"
+          >
+            {camOn ? <Video size={16} /> : <VideoOff size={16} />}
+          </button>
+          <button
+            type="button"
+            onClick={toggleShare}
+            className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]"
+            title="Share screen"
+          >
+            <Monitor size={16} className={sharing ? "text-[var(--hq-accent)]" : ""} />
+          </button>
+          {viewMode === "inline" && (
+            <button
+              type="button"
+              onClick={() => setViewMode("call")}
+              className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]"
+              title="Call mode (fullscreen)"
+            >
+              <Maximize2 size={16} />
+            </button>
+          )}
+          {viewMode === "call" && (
+            <>
+              <button
+                type="button"
+                onClick={() => setViewMode("sidebar")}
+                className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]"
+                title="Sidebar mode"
+              >
+                <PanelLeft size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("inline")}
+                className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]"
+                title="Exit fullscreen"
+              >
+                <Minimize2 size={16} />
+              </button>
+            </>
+          )}
+          {viewMode === "sidebar" && (
+            <>
+              <button
+                type="button"
+                onClick={() => setViewMode("call")}
+                className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]"
+                title="Call mode"
+              >
+                <Maximize2 size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("inline")}
+                className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]"
+                title="Exit fullscreen"
+              >
+                <Minimize2 size={16} />
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => leaveCall(true)}
+            className="px-2 py-1 rounded-lg bg-red-500/15 text-red-500 text-xs font-medium hover:bg-red-500/25"
+            title="Leave (others stay)"
+          >
+            Leave
+          </button>
+          {isHostRef.current && (
+            <button
+              type="button"
+              onClick={endCallForEveryone}
+              className="px-2 py-1 rounded-lg border border-red-500/40 text-red-500 text-xs hover:bg-red-500/10"
+              title="End for everyone"
+            >
+              End all
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  function ScreenCard({
+    tile,
+    onFocus,
+  }: {
+    tile: (typeof allTiles)[0];
+    onFocus?: () => void;
+  }) {
+    const hasLive = !!tile.stream?.getVideoTracks().some((t) => t.readyState === "live");
+    const showStopped = !hasLive && !!tile.stoppedFrame;
+
+    return (
+      <div className="flex flex-col min-w-0">
+        <div className="relative w-full overflow-hidden rounded-lg bg-black/50 aspect-video">
+          {hasLive && tile.stream ? (
+            <StableVideo
+              stream={tile.stream}
+              muted={tile.isLocal}
+              mirror={tile.isLocal && !tile.isScreen}
+              className="w-full h-full object-contain"
+            />
+          ) : showStopped ? (
+            <div className="relative w-full h-full">
+              <img
+                src={tile.stoppedFrame}
+                alt=""
+                className="w-full h-full object-cover blur-md scale-105 brightness-75"
+              />
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div
+                  className="rounded-full overflow-hidden border-2 border-white/40 shadow-lg flex items-center justify-center text-white font-semibold"
+                  style={{
+                    width: "20%",
+                    height: "20%",
+                    minWidth: 36,
+                    minHeight: 36,
+                    background: tile.avatarColor || "var(--hq-accent)",
+                  }}
+                >
+                  {tile.avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={tile.avatarUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-[clamp(10px,2.5vw,16px)]">
+                      {(tile.name || "?").charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-[10px] sm:text-xs text-white/50">
+              {tile.isLocal ? (camOn || sharing ? "…" : "No video") : "Waiting…"}
+            </div>
+          )}
+        </div>
+        <div className="mt-1 flex items-center gap-1 min-w-0 px-0.5">
+          <span
+            className="text-[10px] sm:text-[11px] font-bold text-[var(--hq-text)] truncate leading-tight"
+            title={tile.name}
+          >
+            {tile.name}
+            {tile.isLocal ? " (you)" : ""}
+          </span>
+          {onFocus && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onFocus();
+              }}
+              className="shrink-0 p-0.5 rounded text-[var(--hq-muted)] hover:text-[var(--hq-accent)] hover:bg-[var(--hq-hover)]"
+              title="Show fullscreen"
+            >
+              <Expand size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (inCall && (viewMode === "call" || viewMode === "sidebar")) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-[var(--hq-bg)] flex flex-col">
+        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+        <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-[var(--hq-border)] bg-[var(--hq-bg)]/95 backdrop-blur">
+          <Toolbar dense />
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={() => setViewMode("inline")}
+            className="p-1.5 rounded-lg text-[var(--hq-muted)] hover:bg-[var(--hq-hover)]"
+            title="Exit call mode"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {viewMode === "call" && (
+          <div className="flex-1 min-h-0 p-3 overflow-auto">
+            <div
+              className={cn(
+                "grid gap-3 h-full",
+                allTiles.length <= 1
+                  ? "grid-cols-1"
+                  : allTiles.length === 2
+                    ? "grid-cols-1 sm:grid-cols-2"
+                    : allTiles.length <= 4
+                      ? "grid-cols-2"
+                      : "grid-cols-2 lg:grid-cols-3"
+              )}
+            >
+              {allTiles.map((tile) => (
+                <ScreenCard
+                  key={tile.id}
+                  tile={tile}
+                  onFocus={() => {
+                    setFocusedPeerId(tile.id);
+                    setViewMode("sidebar");
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {viewMode === "sidebar" && (
+          <div className="flex-1 min-h-0 flex">
+            <div className="w-[20%] min-w-[120px] max-w-[280px] border-r border-[var(--hq-border)] overflow-y-auto p-2 space-y-2 bg-[var(--hq-bg)]/80">
+              {allTiles.map((tile) => (
+                <button
+                  key={tile.id}
+                  type="button"
+                  onClick={() => setFocusedPeerId(tile.id)}
+                  className={cn(
+                    "w-full text-left rounded-lg transition-shadow focus:outline-none",
+                    focusedPeerId === tile.id || (!focusedPeerId && focused?.id === tile.id)
+                      ? "ring-2 ring-[var(--hq-accent)]"
+                      : "hover:ring-1 hover:ring-[var(--hq-border)]"
+                  )}
+                >
+                  <ScreenCard
+                    tile={tile}
+                    onFocus={() => {
+                      setFocusedPeerId(tile.id);
+                    }}
+                  />
+                </button>
+              ))}
+            </div>
+            <div className="flex-1 min-w-0 p-3 flex flex-col">
+              {focused ? (
+                <>
+                  <div className="flex-1 min-h-0 relative rounded-xl overflow-hidden bg-black/60" data-focused-video>
+                    {focused.stream && focused.stream.getVideoTracks().some((t) => t.readyState === "live") ? (
+                      <StableVideo
+                        stream={focused.stream}
+                        muted={focused.isLocal}
+                        mirror={focused.isLocal && !focused.isScreen}
+                        className="w-full h-full object-contain"
+                      />
+                    ) : focused.stoppedFrame ? (
+                      <div className="relative w-full h-full">
+                        <img
+                          src={focused.stoppedFrame}
+                          alt=""
+                          className="w-full h-full object-contain blur-md brightness-75"
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div
+                            className="rounded-full overflow-hidden border-2 border-white/40 shadow-lg flex items-center justify-center text-white font-semibold"
+                            style={{
+                              width: "20%",
+                              height: "20%",
+                              minWidth: 48,
+                              minHeight: 48,
+                              background: focused.avatarColor || "var(--hq-accent)",
+                            }}
+                          >
+                            {focused.avatarUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={focused.avatarUrl} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-lg">
+                                {(focused.name || "?").charAt(0).toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-sm text-white/50">
+                        No video
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="text-xs font-bold text-[var(--hq-text)]">
+                      {focused.name}
+                      {focused.isLocal ? " (you)" : ""}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const el = document.querySelector("[data-focused-video]") as HTMLElement | null;
+                        if (el?.requestFullscreen) el.requestFullscreen().catch(() => {});
+                      }}
+                      className="p-1 rounded text-[var(--hq-muted)] hover:text-[var(--hq-accent)]"
+                      title="Browser fullscreen"
+                    >
+                      <Expand size={14} />
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-sm text-[var(--hq-muted)]">
+                  Select a screen
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <p className="absolute bottom-4 left-4 text-xs text-[var(--hq-danger)] bg-[var(--hq-bg)]/90 px-2 py-1 rounded">
+            {error}
+          </p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className={cn("rounded-xl border border-[var(--hq-border)] bg-[var(--hq-bg)]/50 p-3", className)}>
       <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
@@ -752,10 +1342,18 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
               {ringSecondsLeft}s left — others can still join after someone answers
             </p>
           </div>
-          <button type="button" onClick={acceptIncoming} className="px-3 py-1.5 rounded-full bg-emerald-500 text-white text-xs font-medium hover:bg-emerald-600">
+          <button
+            type="button"
+            onClick={acceptIncoming}
+            className="px-3 py-1.5 rounded-full bg-emerald-500 text-white text-xs font-medium hover:bg-emerald-600"
+          >
             Answer
           </button>
-          <button type="button" onClick={declineIncoming} className="px-3 py-1.5 rounded-full border border-[var(--hq-border)] text-xs text-[var(--hq-muted)] hover:bg-[var(--hq-hover)]">
+          <button
+            type="button"
+            onClick={declineIncoming}
+            className="px-3 py-1.5 rounded-full border border-[var(--hq-border)] text-xs text-[var(--hq-muted)] hover:bg-[var(--hq-hover)]"
+          >
             Decline
           </button>
         </div>
@@ -770,57 +1368,17 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
             <p className="text-sm font-semibold">Call in progress</p>
             <p className="text-xs text-[var(--hq-muted)]">Join anytime while the room is active</p>
           </div>
-          <button type="button" onClick={acceptIncoming} className="px-3 py-1.5 rounded-full bg-[var(--hq-accent)] text-white text-xs font-medium hover:bg-[var(--hq-accent-hover)]">
+          <button
+            type="button"
+            onClick={acceptIncoming}
+            className="px-3 py-1.5 rounded-full bg-[var(--hq-accent)] text-white text-xs font-medium hover:bg-[var(--hq-accent-hover)]"
+          >
             Join
           </button>
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        {!inCall ? (
-          <>
-            <button
-              type="button"
-              onClick={startCall}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--hq-accent)] text-white text-xs font-medium hover:bg-[var(--hq-accent-hover)]"
-            >
-              <Phone size={14} />
-              Start call
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowRingtonePicker((v) => !v)}
-              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[var(--hq-muted)] hover:bg-[var(--hq-hover)] text-xs"
-            >
-              <Volume2 size={14} />
-              {RINGTONE_LABELS[ringtone]}
-            </button>
-          </>
-        ) : (
-          <>
-            <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full", status === "live" ? "bg-emerald-500/15 text-emerald-600" : "bg-amber-500/15 text-amber-600")}>
-              {status === "live" ? "In call" : "Connecting…"}
-            </span>
-            <button type="button" onClick={toggleMute} className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]" title={muted ? "Unmute" : "Mute"}>
-              {muted ? <MicOff size={16} /> : <Mic size={16} />}
-            </button>
-            <button type="button" onClick={toggleCam} className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]" title="Camera">
-              {camOn ? <Video size={16} /> : <VideoOff size={16} />}
-            </button>
-            <button type="button" onClick={toggleShare} className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]" title="Share screen">
-              <Monitor size={16} className={sharing ? "text-[var(--hq-accent)]" : ""} />
-            </button>
-            <button type="button" onClick={() => leaveCall(true)} className="px-2 py-1 rounded-lg bg-red-500/15 text-red-500 text-xs font-medium hover:bg-red-500/25" title="Leave (others stay)">
-              Leave
-            </button>
-            {isHostRef.current && (
-              <button type="button" onClick={endCallForEveryone} className="px-2 py-1 rounded-lg border border-red-500/40 text-red-500 text-xs hover:bg-red-500/10" title="End for everyone">
-                End all
-              </button>
-            )}
-          </>
-        )}
-      </div>
+      <Toolbar />
 
       {showRingtonePicker && (
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -845,22 +1403,17 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
       {error && <p className="mt-2 text-xs text-[var(--hq-danger)]">{error}</p>}
 
       {inCall && (
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <video ref={localVideoRef} autoPlay muted playsInline className="w-full aspect-video rounded-lg bg-black/40 object-cover" />
-          {remoteMedias[0] ? (
-            <video
-              autoPlay
-              playsInline
-              className="w-full aspect-video rounded-lg bg-black/40 object-cover"
-              ref={(el) => {
-                if (el && remoteMedias[0]) el.srcObject = remoteMedias[0].stream;
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {allTiles.map((tile) => (
+            <ScreenCard
+              key={tile.id}
+              tile={tile}
+              onFocus={() => {
+                setFocusedPeerId(tile.id);
+                setViewMode("sidebar");
               }}
             />
-          ) : (
-            <div className="w-full aspect-video rounded-lg bg-black/40 flex items-center justify-center text-xs text-white/50">
-              Waiting for others…
-            </div>
-          )}
+          ))}
         </div>
       )}
     </div>
