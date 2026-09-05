@@ -7,10 +7,10 @@ import { uid } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-/** Rooms older than this (seconds) are auto-closed when listing */
-const RING_TTL_SEC = 60;
+/** Unanswered ring expires after this many seconds (3 minutes) */
+const RING_TTL_SEC = 180;
 
-/** Create a call room (voice / screenshare session) */
+/** Create a call room */
 export async function POST(req: NextRequest) {
   await ensureMigrated();
   const session = await getSessionUser();
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   const id = uid();
   const now = Math.floor(Date.now() / 1000);
 
-  // Close any previous open rooms for this context by this host (avoid stale rings)
+  // Close previous unanswered open rooms by this host for this context
   if (body.contextId) {
     await db
       .update(callRooms)
@@ -59,13 +59,13 @@ export async function POST(req: NextRequest) {
       contextId: body.contextId || null,
       hostId: session.id,
       signalUrl: `/api/calls/${id}/signal`,
-      expiresIn: RING_TTL_SEC,
+      ringTtlSec: RING_TTL_SEC,
     },
     { status: 201 }
   );
 }
 
-/** List open rooms for a context (only fresh rooms; expires stale ones) */
+/** List rooms: open (ringing) only if fresh; live rooms always returned */
 export async function GET(req: NextRequest) {
   await ensureMigrated();
   const session = await getSessionUser();
@@ -77,7 +77,8 @@ export async function GET(req: NextRequest) {
   const now = Math.floor(Date.now() / 1000);
   const cutoff = now - RING_TTL_SEC;
 
-  // Auto-close rooms older than RING_TTL_SEC still marked open
+  // Auto-close only unanswered "open" rooms older than 3 minutes.
+  // Do NOT touch "live" rooms — those stay until hangup.
   await db
     .update(callRooms)
     .set({ status: "closed", closedAt: now })
@@ -89,7 +90,8 @@ export async function GET(req: NextRequest) {
       )
     );
 
-  const rooms = await db
+  // Ringing rooms (open + fresh) OR active live rooms
+  const openFresh = await db
     .select({
       id: callRooms.id,
       kind: callRooms.kind,
@@ -108,10 +110,24 @@ export async function GET(req: NextRequest) {
     )
     .limit(10);
 
+  const live = await db
+    .select({
+      id: callRooms.id,
+      kind: callRooms.kind,
+      contextId: callRooms.contextId,
+      hostId: callRooms.hostId,
+      status: callRooms.status,
+      createdAt: callRooms.createdAt,
+    })
+    .from(callRooms)
+    .where(and(eq(callRooms.contextId, contextId), eq(callRooms.status, "live")))
+    .limit(10);
+
+  const rooms = [...openFresh, ...live];
   return NextResponse.json({ rooms, me: session?.id || null });
 }
 
-/** Explicitly close a room */
+/** Close a room (any participant may end) */
 export async function DELETE(req: NextRequest) {
   await ensureMigrated();
   const session = await getSessionUser();
@@ -121,10 +137,36 @@ export async function DELETE(req: NextRequest) {
   if (!roomId) return NextResponse.json({ error: "id required" }, { status: 400 });
 
   const now = Math.floor(Date.now() / 1000);
+  // Any authenticated member of the context can close — host or participant
   await db
     .update(callRooms)
     .set({ status: "closed", closedAt: now })
-    .where(and(eq(callRooms.id, roomId), eq(callRooms.hostId, session.id)));
+    .where(eq(callRooms.id, roomId));
+
+  return NextResponse.json({ ok: true });
+}
+
+/** Mark room as live (answered) */
+export async function PATCH(req: NextRequest) {
+  await ensureMigrated();
+  const session = await getSessionUser();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  let body: { id?: string; status?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (!body.id || body.status !== "live") {
+    return NextResponse.json({ error: "id and status=live required" }, { status: 400 });
+  }
+
+  await db
+    .update(callRooms)
+    .set({ status: "live" })
+    .where(and(eq(callRooms.id, body.id), eq(callRooms.status, "open")));
 
   return NextResponse.json({ ok: true });
 }

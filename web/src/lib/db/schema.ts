@@ -363,7 +363,7 @@ export const callRooms = pgTable(
     hostId: text("host_id")
       .notNull()
       .references(() => users.id),
-    status: text("status", { enum: ["open", "closed"] })
+    status: text("status", { enum: ["open", "live", "closed"] })
       .notNull()
       .default("open"),
     createdAt: integer("created_at")

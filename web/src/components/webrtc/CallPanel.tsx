@@ -29,7 +29,7 @@ const RINGTONE_LABELS: Record<RingtoneId, string> = {
   soft: "Soft wave",
 };
 
-const RING_TIMEOUT_MS = 60_000;
+const RING_TIMEOUT_MS = 180_000; // 3 minutes unanswered ring
 
 function createRingtonePlayer(id: RingtoneId) {
   let ctx: AudioContext | null = null;
@@ -113,7 +113,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     return (localStorage.getItem("call-ringtone") as RingtoneId) || "chime";
   });
   const [showRingtonePicker, setShowRingtonePicker] = useState(false);
-  const [ringSecondsLeft, setRingSecondsLeft] = useState(60);
+  const [ringSecondsLeft, setRingSecondsLeft] = useState(180);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -130,6 +130,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   const roomIdRef = useRef<string | null>(null);
   const statusRef = useRef(status);
   const handledRoomsRef = useRef<Set<string>>(new Set());
+  const peerJoinedRef = useRef(false);
 
   useEffect(() => {
     statusRef.current = status;
@@ -262,7 +263,15 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
         stopRingtone();
       } else if (s.type === "answer" && isHostRef.current) {
         await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
+        peerJoinedRef.current = true;
+        stopRingtone();
         setStatus("live");
+        // Mark room live on server so it is not auto-closed
+        fetch("/api/calls", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: roomIdRef.current, status: "live" }),
+        }).catch(() => {});
       } else if (s.type === "ice") {
         try {
           await pc.addIceCandidate(s.payload as RTCIceCandidateInit);
@@ -286,27 +295,35 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     }
   }
 
-  function beginRingTimeout(roomIdToExpire: string) {
+  function beginRingTimeout(roomIdToExpire: string, playSound: boolean) {
+    // Clear any previous ring timers first
     stopRingtone();
-    setRingSecondsLeft(60);
-    ringtoneRef.current = createRingtonePlayer(ringtone);
-    ringtoneRef.current.start();
+    setRingSecondsLeft(180);
+    if (playSound) {
+      ringtoneRef.current = createRingtonePlayer(ringtone);
+      ringtoneRef.current.start();
+    }
     ringTickRef.current = setInterval(() => {
       setRingSecondsLeft((s) => Math.max(0, s - 1));
     }, 1000);
     ringTimeoutRef.current = setTimeout(() => {
-      // unanswered — stop ring, mark handled, close room if we are host
+      // Only act if still waiting for an answer — never kill an active live call
       stopRingtone();
-      handledRoomsRef.current.add(roomIdToExpire);
-      setIncoming(null);
       if (statusRef.current === "ringing") {
+        handledRoomsRef.current.add(roomIdToExpire);
+        setIncoming(null);
         setStatus("idle");
-      }
-      // tell server to close if host still owns it
-      fetch(`/api/calls?id=${encodeURIComponent(roomIdToExpire)}`, { method: "DELETE" }).catch(() => {});
-      if (roomIdRef.current === roomIdToExpire) {
+        fetch(`/api/calls?id=${encodeURIComponent(roomIdToExpire)}`, { method: "DELETE" }).catch(() => {});
+      } else if (
+        statusRef.current === "live" &&
+        isHostRef.current &&
+        !peerJoinedRef.current
+      ) {
+        // Host rang for 3 min, nobody answered — end unanswered outbound call
+        handledRoomsRef.current.add(roomIdToExpire);
         endCall(true);
       }
+      // If live and peer joined, do nothing — call stays up
     }, RING_TIMEOUT_MS);
   }
 
@@ -338,7 +355,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
         if (open && !roomIdRef.current && statusRef.current === "idle") {
           setIncoming({ id: open.id, hostId: open.hostId });
           setStatus("ringing");
-          beginRingTimeout(open.id);
+          beginRingTimeout(open.id, true);
         } else if (!open && statusRef.current === "ringing" && !roomIdRef.current) {
           // room vanished / expired
           stopRingtone();
@@ -385,8 +402,10 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
         body: JSON.stringify({ type: "offer", payload: offer }),
       });
       startPolling(data.id);
-      // Host also gets a ring timeout — if no one answers in 60s, hang up
-      beginRingTimeout(data.id);
+      peerJoinedRef.current = false;
+      // Wait up to 3 min for someone to answer — do NOT play ringtone on host,
+      // and do NOT end the call if peer already joined
+      beginRingTimeout(data.id, false);
       setStatus("live");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Could not start call";
@@ -398,7 +417,8 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
 
   async function acceptIncoming() {
     if (!incoming) return;
-    stopRingtone();
+    stopRingtone(); // stop ring immediately on answer
+    peerJoinedRef.current = true;
     setStatus("connecting");
     isHostRef.current = false;
     setRoomId(incoming.id);
@@ -409,6 +429,12 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
       const pc = await ensurePc();
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
       startPolling(incoming.id);
+      // Mark room live — stays open until hangup
+      fetch("/api/calls", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: incoming.id, status: "live" }),
+      }).catch(() => {});
       setIncoming(null);
       setStatus("live");
     } catch (e: unknown) {
@@ -451,6 +477,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     setCamOn(false);
     setSharing(false);
     isHostRef.current = false;
+    peerJoinedRef.current = false;
   }
 
   function toggleMute() {
@@ -609,7 +636,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">Incoming call</p>
             <p className="text-xs text-[var(--hq-muted)]">
-              Rings for {ringSecondsLeft}s then stops if unanswered
+              Rings for {ringSecondsLeft}s (max 3 min) — stops when answered or declined
             </p>
           </div>
           <button
