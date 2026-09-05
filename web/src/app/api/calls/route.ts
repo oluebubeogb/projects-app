@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
       and(
         eq(callRooms.contextId, contextId),
         eq(callRooms.status, "open"),
-        sql`${callRooms.createdAt} < ${cutoff}`
+        lt(callRooms.createdAt, cutoff)
       )
     );
 
