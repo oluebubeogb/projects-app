@@ -62,13 +62,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   let body: { body?: string; kind?: string; mediaPath?: string; parentId?: string };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const text = (body.body || "").trim();
-  const kind = body.kind === "voice" ? "voice" : "text";
-  if (kind === "text" && !text) return NextResponse.json({ error: "Body required" }, { status: 400 });
+  type PostKind = "text" | "voice" | "system" | "image" | "file";
+  const allowed: PostKind[] = ["text", "voice", "system", "image", "file"];
+  const kind: PostKind = allowed.includes(body.kind as PostKind) ? (body.kind as PostKind) : "text";
+  if (kind === "text" && !text && !body.mediaPath) return NextResponse.json({ error: "Body required" }, { status: 400 });
   const postId = uid();
   const now = Math.floor(Date.now() / 1000);
   await db.insert(forumPosts).values({
     id: postId, forumId: id, authorId: session.id,
-    body: text || (kind === "voice" ? "Voice note" : ""), kind,
+    body: text || (kind === "voice" ? "Voice note" : body.mediaPath ? "Attachment" : ""), kind,
     mediaPath: body.mediaPath || null, parentId: body.parentId || null, createdAt: now,
   });
   await db.update(forums).set({ updatedAt: now }).where(eq(forums.id, id));
