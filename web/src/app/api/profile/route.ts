@@ -4,6 +4,32 @@ import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { eq, and, ne } from "drizzle-orm";
 
+export async function GET() {
+  const session = await getSessionUser();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const rows = await db.select().from(users).where(eq(users.id, session.id)).limit(1);
+  const u = rows[0];
+  if (!u) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({
+    user: {
+      id: u.id,
+      name: u.name,
+      username: u.username,
+      avatarColor: u.avatarColor,
+      avatarUrl: u.avatarUrl ?? null,
+      bio: u.bio ?? "",
+      organization: (u as { organization?: string }).organization ?? "",
+      location: (u as { location?: string }).location ?? "",
+    },
+  });
+}
+
 export async function PATCH(req: NextRequest) {
   const session = await getSessionUser();
   if (!session) {
@@ -49,7 +75,6 @@ export async function PATCH(req: NextRequest) {
     );
   }
 
-  // uniqueness
   const existing = await db
     .select({ id: users.id })
     .from(users)

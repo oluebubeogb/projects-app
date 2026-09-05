@@ -246,6 +246,13 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   const [focusedPeerId, setFocusedPeerId] = useState<string | null>(null);
   const [stoppedFrames, setStoppedFrames] = useState<Record<string, string>>({});
   const [myName, setMyName] = useState<string>("You");
+  const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(null);
+  const [myAvatarColor, setMyAvatarColor] = useState<string>("#5C5DE2");
+  const myProfileRef = useRef<{ name: string; avatarUrl: string | null; avatarColor: string }>({
+    name: "You",
+    avatarUrl: null,
+    avatarColor: "#5C5DE2",
+  });
   const [peerNames, setPeerNames] = useState<
     Record<string, { name?: string; avatarUrl?: string | null; avatarColor?: string }>
   >({});
@@ -303,13 +310,30 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
         const res = await fetch("/api/profile");
         if (!res.ok) return;
         const data = await res.json();
-        const n = (data.user?.name || data.name || "").trim();
-        if (!cancelled && n) setMyName(n);
+        const u = data.user || data;
+        const n = (u.name || "").trim();
+        const url = (u.avatarUrl || null) as string | null;
+        const color = (u.avatarColor || "#5C5DE2") as string;
+        if (cancelled) return;
+        if (n) setMyName(n);
+        setMyAvatarUrl(url);
+        setMyAvatarColor(color);
+        myProfileRef.current = { name: n || "You", avatarUrl: url, avatarColor: color };
+        // If already in a room, announce ourselves so peers get the real name
+        const rid = roomIdRef.current;
+        if (rid && n) {
+          postSignal(rid, "peer-info", {
+            name: n,
+            avatarUrl: url,
+            avatarColor: color,
+          }).catch(() => {});
+        }
       } catch {}
     })();
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const stopRingtone = useCallback(() => {
@@ -515,6 +539,13 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
             },
           }));
         }
+        // Tell the joiner who we are (full name + avatar)
+        const me = myProfileRef.current;
+        postSignal(roomIdRef.current!, "peer-info", {
+          name: me.name !== "You" ? me.name : undefined,
+          avatarUrl: me.avatarUrl,
+          avatarColor: me.avatarColor,
+        }, peerId).catch(() => {});
         // Perfect negotiation style: only create offer if we don't already have a PC
         // or if our id is "greater" (avoid glare) — simple: always answer role for join-request receiver
         if (!pcsRef.current.has(peerId) && !makingOfferRef.current.has(peerId)) {
@@ -764,6 +795,12 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
 
       await getLocalStream(false);
       startPolling(data.id);
+      const profile = myProfileRef.current;
+      postSignal(data.id, "peer-info", {
+        name: profile.name !== "You" ? profile.name : undefined,
+        avatarUrl: profile.avatarUrl,
+        avatarColor: profile.avatarColor,
+      }).catch(() => {});
       setStatus("live");
       setViewMode("call");
       enterBrowserFullscreen();
@@ -787,8 +824,17 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
       await getLocalStream(false);
       startPolling(targetRoomId);
       // Broadcast join-request so EVERY existing participant creates a PC to us (mesh)
+      const profile = myProfileRef.current;
       await postSignal(targetRoomId, "join-request", {
-        name: myName !== "You" ? myName : undefined,
+        name: profile.name !== "You" ? profile.name : myName !== "You" ? myName : undefined,
+        avatarUrl: profile.avatarUrl,
+        avatarColor: profile.avatarColor,
+      });
+      // Also broadcast peer-info so names stick even if join-request payload was missed
+      await postSignal(targetRoomId, "peer-info", {
+        name: profile.name !== "You" ? profile.name : myName,
+        avatarUrl: profile.avatarUrl,
+        avatarColor: profile.avatarColor,
       });
       fetch("/api/calls", {
         method: "PATCH",
@@ -1029,6 +1075,8 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     id: "local",
     stream: localStreamRef.current,
     name: displayName("local", myName),
+    avatarUrl: myAvatarUrl,
+    avatarColor: myAvatarColor,
     isLocal: true,
     isScreen: sharing,
     stoppedFrame: stoppedFrames.local,
@@ -1240,6 +1288,37 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     </div>
   );
 
+  function AvatarCircle({
+    name,
+    avatarUrl,
+    avatarColor,
+    size = 40,
+  }: {
+    name?: string;
+    avatarUrl?: string | null;
+    avatarColor?: string;
+    size?: number;
+  }) {
+    return (
+      <div
+        className="rounded-full overflow-hidden shadow-md flex items-center justify-center text-white font-semibold shrink-0"
+        style={{
+          width: size,
+          height: size,
+          background: avatarColor || "var(--hq-accent)",
+          fontSize: Math.max(12, size * 0.38),
+        }}
+      >
+        {avatarUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <span>{(name || "?").charAt(0).toUpperCase()}</span>
+        )}
+      </div>
+    );
+  }
+
   function ScreenCard({
     tile,
     onFocus,
@@ -1251,20 +1330,17 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     tone?: "sidebar" | "focus";
   }) {
     const hasLive = !!tile.stream?.getVideoTracks().some((t) => t.readyState === "live");
-    const showStopped = !hasLive && !!tile.stoppedFrame;
     const emptyBg =
-      tone === "focus"
-        ? "bg-emerald-500/15 border border-emerald-500/25"
-        : "bg-[rgba(92,93,226,0.12)] border border-[rgba(92,93,226,0.22)]";
+      tone === "focus" ? "bg-emerald-500/20" : "bg-[rgba(92,93,226,0.14)]";
     const emptyText =
-      tone === "focus" ? "text-emerald-600/70 dark:text-emerald-400/70" : "text-[var(--hq-accent)]/70";
+      tone === "focus" ? "text-emerald-700/80 dark:text-emerald-300/80" : "text-[var(--hq-accent)]/80";
 
     return (
       <div className="flex flex-col min-w-0">
         <div
           className={cn(
-            "relative w-full overflow-hidden rounded-lg aspect-video",
-            hasLive || showStopped ? "bg-black/50" : emptyBg
+            "relative w-full overflow-hidden rounded-xl aspect-video",
+            hasLive ? "bg-[rgba(15,23,42,0.55)]" : emptyBg
           )}
         >
           {hasLive && tile.stream ? (
@@ -1274,38 +1350,17 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
               mirror={tile.isLocal && !tile.isScreen}
               className="w-full h-full object-contain"
             />
-          ) : showStopped ? (
-            <div className="relative w-full h-full">
-              <img
-                src={tile.stoppedFrame}
-                alt=""
-                className="w-full h-full object-cover blur-md scale-105 brightness-75"
-              />
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div
-                  className="rounded-full overflow-hidden border-2 border-white/40 shadow-lg flex items-center justify-center text-white font-semibold"
-                  style={{
-                    width: "20%",
-                    height: "20%",
-                    minWidth: 36,
-                    minHeight: 36,
-                    background: tile.avatarColor || "var(--hq-accent)",
-                  }}
-                >
-                  {tile.avatarUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={tile.avatarUrl} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-[clamp(10px,2.5vw,16px)]">
-                      {(tile.name || "?").charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
           ) : (
-            <div className={cn("w-full h-full flex items-center justify-center text-[10px] sm:text-xs", emptyText)}>
-              {tile.isLocal ? (camOn || sharing ? "…" : "No video") : "Waiting…"}
+            <div className={cn("w-full h-full flex flex-col items-center justify-center gap-2", emptyText)}>
+              <AvatarCircle
+                name={tile.name}
+                avatarUrl={tile.avatarUrl}
+                avatarColor={tile.avatarColor || (tile.isLocal ? myAvatarColor : undefined)}
+                size={tone === "focus" ? 72 : 44}
+              />
+              <span className="text-[10px] sm:text-[11px] font-medium">
+                {tile.isLocal ? (camOn || sharing ? "…" : "No video") : "Waiting…"}
+              </span>
             </div>
           )}
         </div>
@@ -1389,25 +1444,30 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
 
         {viewMode === "sidebar" && (
           <div className="flex-1 min-h-0 flex">
-            <div className="w-[20%] min-w-[120px] max-w-[280px] border-r border-[var(--hq-border)] overflow-y-auto p-2 space-y-2 bg-[var(--hq-bg)]/80">
-              {allTiles.map((tile) => (
+            <div className="w-[20%] min-w-[120px] max-w-[280px] border-r border-[rgba(92,93,226,0.15)] overflow-y-auto p-2 space-y-2 bg-[rgba(92,93,226,0.04)]">
+              {allTiles.map((tile) => {
+                const selected =
+                  focusedPeerId === tile.id || (!focusedPeerId && focused?.id === tile.id);
+                return (
                 <button
                   key={tile.id}
                   type="button"
                   onClick={() => setFocusedPeerId(tile.id)}
                   className={cn(
-                    "w-full text-left rounded-lg transition-shadow focus:outline-none",
-                    focusedPeerId === tile.id || (!focusedPeerId && focused?.id === tile.id)
-                      ? "ring-2 ring-[var(--hq-accent)]"
-                      : "hover:ring-1 hover:ring-[var(--hq-border)]"
+                    "w-full text-left rounded-xl transition-all focus:outline-none p-0.5",
+                    selected
+                      ? "shadow-[0_0_0_2px_rgba(92,93,226,0.35),0_0_18px_rgba(92,93,226,0.35)] bg-[rgba(92,93,226,0.08)]"
+                      : "hover:shadow-[0_0_0_1px_rgba(92,93,226,0.2)]"
                   )}
                 >
                   <ScreenCard
                     tile={tile}
                     onFocus={() => setFocusedPeerId(tile.id)}
+                    tone="sidebar"
                   />
                 </button>
-              ))}
+                );
+              })}
             </div>
             <div className="flex-1 min-w-0 p-3 flex flex-col">
               {focused ? (
@@ -1416,8 +1476,8 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
                     className={cn(
                       "flex-1 min-h-0 relative rounded-xl overflow-hidden",
                       focused.stream && focused.stream.getVideoTracks().some((t) => t.readyState === "live")
-                        ? "bg-black/60"
-                        : "bg-emerald-500/15 border border-emerald-500/25"
+                        ? "bg-[rgba(15,23,42,0.55)]"
+                        : "bg-emerald-500/20"
                     )}
                     data-focused-video
                   >
@@ -1429,38 +1489,17 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
                         mirror={focused.isLocal && !focused.isScreen}
                         className="w-full h-full object-contain"
                       />
-                    ) : focused.stoppedFrame ? (
-                      <div className="relative w-full h-full">
-                        <img
-                          src={focused.stoppedFrame}
-                          alt=""
-                          className="w-full h-full object-contain blur-md brightness-75"
-                        />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div
-                            className="rounded-full overflow-hidden border-2 border-white/40 shadow-lg flex items-center justify-center text-white font-semibold"
-                            style={{
-                              width: "20%",
-                              height: "20%",
-                              minWidth: 48,
-                              minHeight: 48,
-                              background: focused.avatarColor || "var(--hq-accent)",
-                            }}
-                          >
-                            {focused.avatarUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={focused.avatarUrl} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <span className="text-lg">
-                                {(focused.name || "?").charAt(0).toUpperCase()}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-sm text-white/50">
-                        No video
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-emerald-700/80 dark:text-emerald-300/80">
+                        <AvatarCircle
+                          name={focused.name}
+                          avatarUrl={focused.avatarUrl || (focused.isLocal ? myAvatarUrl : undefined)}
+                          avatarColor={focused.avatarColor || (focused.isLocal ? myAvatarColor : undefined)}
+                          size={96}
+                        />
+                        <span className="text-sm font-medium">
+                          {focused.isLocal ? (camOn || sharing ? "…" : "No video") : "Waiting…"}
+                        </span>
                       </div>
                     )}
                   </div>
