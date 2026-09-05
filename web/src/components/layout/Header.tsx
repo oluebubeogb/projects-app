@@ -3,7 +3,9 @@ import { getSessionUser } from "@/lib/auth";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { HeaderSearch } from "@/components/layout/HeaderSearch";
-import { LayoutDashboard, MessagesSquare, MessageCircle, Plus, Shield } from "lucide-react";
+import { LayoutDashboard, Plus, Shield } from "lucide-react";
+import { MessagesNav } from "@/components/layout/MessagesNav";
+import { ForumsNav } from "@/components/layout/ForumsNav";
 
 export async function Header() {
   const user = await getSessionUser();
@@ -24,8 +26,8 @@ export async function Header() {
           {user ? (
             <>
               <IconNav href="/dashboard" icon={LayoutDashboard} label="Dashboard" />
-              <IconNav href="/forums" icon={MessagesSquare} label="Forums" className="hidden md:inline-flex" />
-              <IconNav href="/messages" icon={MessageCircle} label="Messages" className="hidden md:inline-flex" />
+              <ForumsNav className="hidden md:inline-flex" />
+              <MessagesNav className="hidden md:inline-flex" />
               <IconNav href="/dashboard/new" icon={Plus} label="New project" />
               {user.role === "admin" && <IconNav href="/admin" icon={Shield} label="Admin" />}
               <NotificationBell />
@@ -54,12 +56,17 @@ export async function Header() {
   );
 }
 
-function IconNav({ href, icon: Icon, label, className = "" }: {
-  href: string; icon: React.ComponentType<{ size?: number; className?: string }>; label: string; className?: string;
+function IconNav({ href, icon: Icon, label, className = "", badge = 0 }: {
+  href: string; icon: React.ComponentType<{ size?: number; className?: string }>; label: string; className?: string; badge?: number;
 }) {
   return (
     <Link href={href} className={`relative group inline-flex items-center justify-center w-9 h-9 rounded-lg text-[var(--hq-muted)] hover:text-[var(--hq-text)] hover:bg-[var(--hq-hover)] transition-colors ${className}`} aria-label={label}>
       <Icon size={18} />
+      {badge > 0 && (
+        <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-[var(--hq-accent)] text-white text-[10px] font-bold flex items-center justify-center leading-none">
+          {badge > 9 ? "9+" : badge}
+        </span>
+      )}
       <span className="pointer-events-none absolute top-full mt-1.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-[var(--hq-elevated)] border border-[var(--hq-border)] px-2 py-1 text-[11px] text-[var(--hq-text)] opacity-0 group-hover:opacity-100 transition-opacity shadow-[var(--hq-shadow-md)] z-50">{label}</span>
     </Link>
   );

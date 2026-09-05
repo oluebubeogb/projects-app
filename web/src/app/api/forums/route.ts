@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { db, ensureMigrated } from "@/lib/db";
-import { forums, forumMembers, projects, projectMembers, users } from "@/lib/db/schema";
+import { forums, forumMembers, forumPosts, projects, projectMembers, users } from "@/lib/db/schema";
 import { eq, desc, or, and, sql } from "drizzle-orm";
 import { uid } from "@/lib/utils";
 
@@ -58,10 +58,38 @@ export async function GET(req: NextRequest) {
     counts[r.id] = c[0]?.cnt || 0;
   }
 
+  // last post + lastReadAt for unread badges
+  const extras: Record<string, { lastPostAt: number | null; lastPostAuthorId: string | null; lastReadAt: number | null }> = {};
+  for (const r of filtered) {
+    const last = await db
+      .select({ createdAt: forumPosts.createdAt, authorId: forumPosts.authorId })
+      .from(forumPosts)
+      .where(eq(forumPosts.forumId, r.id))
+      .orderBy(desc(forumPosts.createdAt))
+      .limit(1);
+    let lastReadAt: number | null = null;
+    if (session) {
+      const mem = await db
+        .select({ lastReadAt: forumMembers.lastReadAt })
+        .from(forumMembers)
+        .where(and(eq(forumMembers.forumId, r.id), eq(forumMembers.userId, session.id)))
+        .limit(1);
+      lastReadAt = mem[0]?.lastReadAt ?? null;
+    }
+    extras[r.id] = {
+      lastPostAt: last[0]?.createdAt ?? null,
+      lastPostAuthorId: last[0]?.authorId ?? null,
+      lastReadAt,
+    };
+  }
+
   return NextResponse.json({
     forums: filtered.map((f) => ({
       ...f,
       memberCount: counts[f.id] || 0,
+      lastPostAt: extras[f.id]?.lastPostAt ?? null,
+      lastPostAuthorId: extras[f.id]?.lastPostAuthorId ?? null,
+      lastReadAt: extras[f.id]?.lastReadAt ?? null,
     })),
   });
 }

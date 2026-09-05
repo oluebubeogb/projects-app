@@ -259,6 +259,7 @@ export const forumMembers = pgTable(
     role: text("role", { enum: ["owner", "admin", "member"] })
       .notNull()
       .default("member"),
+    lastReadAt: integer("last_read_at"),
     joinedAt: integer("joined_at")
       .notNull()
       .default(sql`extract(epoch from now())::int`),
@@ -280,8 +281,8 @@ export const forumPosts = pgTable(
       .notNull()
       .references(() => users.id),
     body: text("body").notNull().default(""),
-    /** text | voice | system */
-    kind: text("kind", { enum: ["text", "voice", "system"] })
+    /** text | voice | system | image | file */
+    kind: text("kind", { enum: ["text", "voice", "system", "image", "file"] })
       .notNull()
       .default("text"),
     /** path to webp image or audio */
@@ -338,7 +339,7 @@ export const messages = pgTable(
       .references(() => users.id),
     body: text("body").notNull().default(""),
     /** text | voice | system */
-    kind: text("kind", { enum: ["text", "voice", "system"] })
+    kind: text("kind", { enum: ["text", "voice", "system", "image", "file"] })
       .notNull()
       .default("text"),
     mediaPath: text("media_path"),

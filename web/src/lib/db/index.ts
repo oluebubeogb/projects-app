@@ -185,10 +185,12 @@ export async function migrate() {
         forum_id TEXT NOT NULL REFERENCES forums(id) ON DELETE CASCADE,
         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         role TEXT NOT NULL DEFAULT 'member',
+        last_read_at INTEGER,
         joined_at INTEGER NOT NULL DEFAULT (extract(epoch from now())::int),
         UNIQUE(forum_id, user_id)
       );
       CREATE INDEX IF NOT EXISTS idx_forum_members_forum ON forum_members(forum_id);
+      ALTER TABLE forum_members ADD COLUMN IF NOT EXISTS last_read_at INTEGER;
 
       CREATE TABLE IF NOT EXISTS forum_posts (
         id TEXT PRIMARY KEY,

@@ -34,6 +34,20 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     authorName: users.name, authorUsername: users.username, authorColor: users.avatarColor,
   }).from(forumPosts).innerJoin(users, eq(users.id, forumPosts.authorId))
     .where(eq(forumPosts.forumId, id)).orderBy(asc(forumPosts.createdAt)).limit(200);
+    // mark forum as read for current user
+  if (session) {
+    const now = Math.floor(Date.now() / 1000);
+    const mem = await db.select().from(forumMembers)
+      .where(and(eq(forumMembers.forumId, id), eq(forumMembers.userId, session.id))).limit(1);
+    if (mem[0]) {
+      await db.update(forumMembers).set({ lastReadAt: now })
+        .where(and(eq(forumMembers.forumId, id), eq(forumMembers.userId, session.id)));
+    } else {
+      await db.insert(forumMembers).values({
+        id: uid(), forumId: id, userId: session.id, role: "member", lastReadAt: now, joinedAt: now,
+      });
+    }
+  }
   return NextResponse.json({ posts });
 }
 

@@ -30,7 +30,7 @@ export default async function MessagesPage({ searchParams }: Props) {
     <div className="max-w-5xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-semibold tracking-tight mb-1">Messages</h1>
       <p className="text-sm text-[var(--hq-muted)] mb-6">
-        Direct messages with text, voice notes, voice calls, and screen share.
+        Direct messages with text, voice notes, images, files, stickers, voice calls, and screen share.
       </p>
       <MessagesClient initialTo={to} myId={user.id} />
     </div>
