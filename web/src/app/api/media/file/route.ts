@@ -54,7 +54,9 @@ function fileResponse(buf: Buffer, filePath: string, downloadName?: string) {
     mime.startsWith("video/") ||
     mime === "application/pdf" ||
     mime.startsWith("text/");
-  return new NextResponse(buf, {
+  // NextResponse expects BodyInit (Uint8Array), not Node Buffer under strict TS
+  const body = new Uint8Array(buf);
+  return new NextResponse(body, {
     headers: {
       "Content-Type": mime,
       "Content-Length": String(buf.length),
@@ -107,7 +109,7 @@ export async function GET(req: NextRequest) {
   }
 
   const buf = fs.readFileSync(filePath);
-  return new NextResponse(buf, {
+  return new NextResponse(new Uint8Array(buf), {
     headers: {
       "Content-Type": m.mime,
       "Content-Length": String(buf.length),
