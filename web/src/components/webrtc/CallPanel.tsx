@@ -1270,7 +1270,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   // Fullscreen call / sidebar mode — covers project header; browser chrome via Fullscreen API
   if (inCall && (viewMode === "call" || viewMode === "sidebar")) {
     return (
-      <div className="fixed inset-0 z-[9999] bg-[var(--hq-bg)] flex flex-col">
+      <div className="fixed inset-0 z100 bg-[var(--hq-bg)] flex flex-col">
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
         <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-[var(--hq-border)] bg-[var(--hq-bg)]/95 backdrop-blur">
           <Toolbar dense />

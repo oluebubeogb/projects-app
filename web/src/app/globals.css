@@ -600,6 +600,10 @@ html[data-theme] header {
   padding: 1rem 4vw 5rem;
 }
 
+.z100 {
+	z-index: 100;
+}
+
 
 /* ---------- Ambient educational background ---------- */
 .ambient-base {
