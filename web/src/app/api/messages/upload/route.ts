@@ -19,9 +19,10 @@ export async function POST(req: NextRequest) {
   const form = await req.formData();
   const file = form.get("file") as File | null;
   const conversationId = form.get("conversationId") as string | null;
+  const forumId = form.get("forumId") as string | null;
 
-  if (!file || !conversationId) {
-    return NextResponse.json({ error: "file and conversationId required" }, { status: 400 });
+  if (!file || (!conversationId && !forumId)) {
+    return NextResponse.json({ error: "file and conversationId or forumId required" }, { status: 400 });
   }
 
   const isImage = file.type.startsWith("image/");
@@ -29,7 +30,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "File max 5 MB" }, { status: 400 });
   }
 
-  const dir = path.join(DATA, "messages", conversationId);
+  const scope = conversationId ? `messages/${conversationId}` : `forums/${forumId}`;
+  const dir = path.join(DATA, scope);
   await mkdir(dir, { recursive: true });
 
   const buffer = Buffer.from(await file.arrayBuffer());
@@ -43,7 +45,6 @@ export async function POST(req: NextRequest) {
 
   if (isImage) {
     kind = "image";
-    // Full / display size (max 720 on long edge)
     const img720 = sharp(buffer).rotate();
     const meta = await img720.metadata();
     const out720 = await img720
@@ -51,10 +52,8 @@ export async function POST(req: NextRequest) {
       .webp({ quality: 82 })
       .toBuffer();
     filename = `${id}.webp`;
-    const filepath = path.join(dir, filename);
-    await writeFile(filepath, out720);
+    await writeFile(path.join(dir, filename), out720);
 
-    // Thumbnail 480
     const out480 = await sharp(buffer)
       .rotate()
       .resize({ width: 480, height: 480, fit: "inside", withoutEnlargement: true })
@@ -64,25 +63,25 @@ export async function POST(req: NextRequest) {
 
     width = meta.width;
     height = meta.height;
-    publicPath = `/api/media/file?path=${encodeURIComponent(`messages/${conversationId}/${filename}`)}`;
+    publicPath = `/api/media/file?path=${encodeURIComponent(`${scope}/${filename}`)}`;
   } else if (file.type.startsWith("audio/")) {
     kind = "voice";
     const ext = (file.name.split(".").pop() || "webm").toLowerCase().replace(/[^a-z0-9]/g, "") || "webm";
     filename = `${id}.${ext}`;
     await writeFile(path.join(dir, filename), buffer);
-    publicPath = `/api/media/file?path=${encodeURIComponent(`messages/${conversationId}/${filename}`)}`;
+    publicPath = `/api/media/file?path=${encodeURIComponent(`${scope}/${filename}`)}`;
   } else {
     kind = "file";
     const ext = (file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
     filename = `${id}.${ext}`;
     await writeFile(path.join(dir, filename), buffer);
-    publicPath = `/api/media/file?path=${encodeURIComponent(`messages/${conversationId}/${filename}`)}`;
+    publicPath = `/api/media/file?path=${encodeURIComponent(`${scope}/${filename}`)}`;
   }
 
   return NextResponse.json({
     path: publicPath,
     path480: isImage
-      ? `/api/media/file?path=${encodeURIComponent(`messages/${conversationId}/${id}-480.webp`)}&size=480`
+      ? `/api/media/file?path=${encodeURIComponent(`${scope}/${id}-480.webp`)}&size=480`
       : undefined,
     originalName: file.name,
     kind,

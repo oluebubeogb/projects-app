@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { getSessionUser } from "@/lib/auth";
 import { db, ensureMigrated } from "@/lib/db";
-import { forums, forumMembers, users } from "@/lib/db/schema";
-import { eq, desc, or, sql } from "drizzle-orm";
+import { forums, forumMembers, forumPosts, users } from "@/lib/db/schema";
+import { eq, desc, or, and, sql } from "drizzle-orm";
 import { CreateForumForm } from "@/components/forum/CreateForumForm";
 import { MessageSquare, Plus, Users } from "lucide-react";
 
@@ -34,12 +34,50 @@ export default async function ForumsPage() {
     .limit(40);
 
   const counts: Record<string, number> = {};
+  const unread: Record<string, number> = {};
   for (const r of rows) {
     const c = await db
       .select({ cnt: sql<number>`count(*)::int` })
       .from(forumMembers)
       .where(eq(forumMembers.forumId, r.id));
     counts[r.id] = c[0]?.cnt || 0;
+
+    let lastReadAt: number | null = null;
+    if (user) {
+      const mem = await db
+        .select({ lastReadAt: forumMembers.lastReadAt })
+        .from(forumMembers)
+        .where(and(eq(forumMembers.forumId, r.id), eq(forumMembers.userId, user.id)))
+        .limit(1);
+      lastReadAt = mem[0]?.lastReadAt ?? null;
+    }
+    const last = await db
+      .select({ createdAt: forumPosts.createdAt, authorId: forumPosts.authorId })
+      .from(forumPosts)
+      .where(eq(forumPosts.forumId, r.id))
+      .orderBy(desc(forumPosts.createdAt))
+      .limit(1);
+    if (last[0] && user && last[0].authorId !== user.id) {
+      if (lastReadAt == null || last[0].createdAt > lastReadAt) {
+        // Approximate unread as at least 1 when there is new content
+        const since = lastReadAt ?? 0;
+        const u = await db
+          .select({ cnt: sql<number>`count(*)::int` })
+          .from(forumPosts)
+          .where(
+            and(
+              eq(forumPosts.forumId, r.id),
+              sql`${forumPosts.createdAt} > ${since}`,
+              sql`${forumPosts.authorId} != ${user.id}`
+            )
+          );
+        unread[r.id] = u[0]?.cnt || 1;
+      } else {
+        unread[r.id] = 0;
+      }
+    } else {
+      unread[r.id] = 0;
+    }
   }
 
   return (
@@ -90,6 +128,11 @@ export default async function ForumsPage() {
                   <h2 className="font-medium flex items-center gap-2">
                     <MessageSquare size={15} className="text-[var(--hq-accent)] shrink-0" />
                     {f.title}
+                    {(unread[f.id] || 0) > 0 && (
+                      <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-[var(--hq-accent)] text-white text-[10px] font-bold">
+                        {unread[f.id]! > 99 ? "99+" : unread[f.id]}
+                      </span>
+                    )}
                   </h2>
                   {f.description ? (
                     <p className="text-sm text-[var(--hq-muted)] mt-1 line-clamp-2">

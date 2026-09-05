@@ -7,7 +7,7 @@ import {
   messages,
   users,
 } from "@/lib/db/schema";
-import { eq, and, desc, ne } from "drizzle-orm";
+import { eq, and, desc, ne, gt, sql } from "drizzle-orm";
 import { uid } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -63,6 +63,20 @@ export async function GET() {
       .orderBy(desc(messages.createdAt))
       .limit(1);
 
+    // Unread = messages from others after lastReadAt
+    const lastRead = c.lastReadAt ?? 0;
+    const unreadRows = await db
+      .select({ cnt: sql<number>`count(*)::int` })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, c.conversationId),
+          ne(messages.authorId, session.id),
+          gt(messages.createdAt, lastRead)
+        )
+      );
+    const unreadCount = unreadRows[0]?.cnt || 0;
+
     result.push({
       id: c.conversationId,
       kind: c.kind,
@@ -71,6 +85,7 @@ export async function GET() {
       lastReadAt: c.lastReadAt,
       peers,
       lastMessage: last[0] || null,
+      unreadCount,
     });
   }
 

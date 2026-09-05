@@ -103,10 +103,13 @@ export function MessagesClient({
   const [showStickers, setShowStickers] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [voicePreview, setVoicePreview] = useState<{ blob: Blob; url: string } | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
   const lastMsgIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -144,6 +147,9 @@ export function MessagesClient({
 
   useEffect(() => {
     loadConversations();
+    // Always refresh conversation list so last-message excerpts + badges stay live
+    const iv = setInterval(() => loadConversations(), 2500);
+    return () => clearInterval(iv);
   }, [loadConversations]);
 
   useEffect(() => {
@@ -166,15 +172,17 @@ export function MessagesClient({
   useEffect(() => {
     if (activeId) {
       loadMessages(activeId);
+      stickToBottomRef.current = true;
       const iv = setInterval(() => {
         loadMessages(activeId, true);
-        loadConversations();
       }, 2200);
       return () => clearInterval(iv);
     }
-  }, [activeId, loadMessages, loadConversations]);
+  }, [activeId, loadMessages]);
 
+  // Only auto-scroll when the user is already near the bottom (or sent a message)
   useEffect(() => {
+    if (!stickToBottomRef.current) return;
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -182,6 +190,7 @@ export function MessagesClient({
     if (!activeId) return;
     const payloadBody = body ?? text.trim();
     if (!payloadBody && !mediaPath) return;
+    stickToBottomRef.current = true;
     setBusy(true);
     setErr(null);
     try {
@@ -248,15 +257,21 @@ export function MessagesClient({
   }
 
   function startRecording() {
+    if (voicePreview) {
+      URL.revokeObjectURL(voicePreview.url);
+      setVoicePreview(null);
+    }
     navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
       const mr = new MediaRecorder(stream);
       chunksRef.current = [];
-      mr.ondataavailable = (e) => chunksRef.current.push(e.data);
-      mr.onstop = async () => {
+      mr.ondataavailable = (e) => {
+        if (e.data.size) chunksRef.current.push(e.data);
+      };
+      mr.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        const file = new File([blob], `voice-${Date.now()}.webm`, { type: "audio/webm" });
-        await uploadAndSend(file);
+        const url = URL.createObjectURL(blob);
+        setVoicePreview({ blob, url });
       };
       mediaRecorderRef.current = mr;
       mr.start();
@@ -272,6 +287,20 @@ export function MessagesClient({
     if (timerRef.current) clearInterval(timerRef.current);
   }
 
+  async function sendVoicePreview() {
+    if (!voicePreview) return;
+    const file = new File([voicePreview.blob], `voice-${Date.now()}.webm`, { type: "audio/webm" });
+    URL.revokeObjectURL(voicePreview.url);
+    setVoicePreview(null);
+    stickToBottomRef.current = true;
+    await uploadAndSend(file);
+  }
+
+  function discardVoicePreview() {
+    if (voicePreview) URL.revokeObjectURL(voicePreview.url);
+    setVoicePreview(null);
+  }
+
   const active = conversations.find((c) => c.id === activeId);
   const peer = active?.peers[0];
 
@@ -285,7 +314,8 @@ export function MessagesClient({
 
   const mediaItems = messages.filter((m) => m.mediaPath || m.kind === "image" || m.kind === "file" || m.kind === "voice");
 
-  function unreadCount(c: Conv) {
+  function unreadCount(c: Conv & { unreadCount?: number }) {
+    if (typeof c.unreadCount === "number") return c.unreadCount;
     if (!c.lastMessage) return 0;
     if (c.lastMessage.authorId === myId) return 0;
     const lastRead = c.lastReadAt ?? 0;
@@ -293,6 +323,15 @@ export function MessagesClient({
   }
 
   const totalUnread = conversations.reduce((n, c) => n + unreadCount(c), 0);
+
+  function excerpt(c: Conv) {
+    if (!c.lastMessage) return "";
+    if (c.lastMessage.kind === "voice") return "🎤 Voice note";
+    if (c.lastMessage.kind === "image") return "📷 Photo";
+    if (c.lastMessage.kind === "file") return "📎 File";
+    const body = (c.lastMessage.body || "").replace(/\s+/g, " ").trim();
+    return body.length > 48 ? body.slice(0, 48) + "…" : body;
+  }
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent("messages-unread", { detail: { count: totalUnread } }));
@@ -341,18 +380,14 @@ export function MessagesClient({
                   <div className="flex items-center justify-between gap-2">
                     <p className={`text-sm truncate ${unread ? "font-semibold" : "font-medium"}`}>{label}</p>
                     {unread > 0 && (
-                      <span className="shrink-0 w-2 h-2 rounded-full bg-[var(--hq-accent)]" />
+                      <span className="shrink-0 min-w-[1.25rem] h-5 px-1.5 rounded-full bg-[var(--hq-accent)] text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                        {unread > 99 ? "99+" : unread}
+                      </span>
                     )}
                   </div>
                   {c.lastMessage && (
-                    <p className="text-[11px] text-[var(--hq-muted)] truncate mt-0.5">
-                      {c.lastMessage.kind === "voice"
-                        ? "🎤 Voice note"
-                        : c.lastMessage.kind === "image"
-                        ? "📷 Photo"
-                        : c.lastMessage.kind === "file"
-                        ? "📎 File"
-                        : c.lastMessage.body}
+                    <p className={`text-[11px] truncate mt-0.5 ${unread ? "text-[var(--hq-text)]/80 font-medium" : "text-[var(--hq-muted)]"}`}>
+                      {excerpt(c)}
                     </p>
                   )}
                 </div>
@@ -497,16 +532,26 @@ export function MessagesClient({
                 )}
               </div>
             ) : (
-              <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5">
+              <div
+                ref={messagesScrollRef}
+                className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5"
+                onScroll={() => {
+                  const el = messagesScrollRef.current;
+                  if (!el) return;
+                  const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+                  stickToBottomRef.current = dist < 80;
+                }}
+              >
                 {filteredMessages.map((m) => {
                   const mine = m.authorId === myId;
                   const isLink = /^https?:\/\//i.test(m.body.trim());
+                  const isPdf = m.mediaPath && /\.pdf($|\?)/i.test(m.mediaPath);
                   return (
                     <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                       <div
                         className={`max-w-[82%] rounded-2xl px-3 py-2 text-sm ${
                           mine
-                            ? "bg-[var(--hq-accent)] text-white rounded-br-md"
+                            ? "bg-[rgba(92,93,226,0.12)] border border-[rgba(92,93,226,0.22)] text-[var(--hq-text)] rounded-br-md"
                             : "bg-[var(--hq-bg)] border border-[var(--hq-border)] rounded-bl-md"
                         }`}
                       >
@@ -528,20 +573,21 @@ export function MessagesClient({
                         {m.kind === "file" && m.mediaPath && (
                           <a
                             href={m.mediaPath}
-                            download
-                            className={`inline-flex items-center gap-2 text-xs mb-1 underline ${mine ? "text-white/90" : "text-[var(--hq-accent)]"}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 text-xs mb-1 underline text-[var(--hq-accent)]"
                           >
                             <Paperclip size={12} />
-                            {m.body || "Download file"}
+                            {isPdf ? `Open PDF: ${m.body || "document"}` : m.body || "Open file"}
                           </a>
                         )}
-                        {m.body && m.kind !== "voice" && (
+                        {m.body && m.kind !== "voice" && m.kind !== "file" && (
                           isLink ? (
                             <a
                               href={m.body.trim()}
                               target="_blank"
                               rel="noreferrer"
-                              className={`underline break-all ${mine ? "text-white" : "text-[var(--hq-accent)]"}`}
+                              className="underline break-all text-[var(--hq-accent)]"
                             >
                               {m.body}
                             </a>
@@ -549,7 +595,7 @@ export function MessagesClient({
                             <p className="whitespace-pre-wrap break-words">{m.body}</p>
                           )
                         )}
-                        <p className={`text-[10px] mt-1 ${mine ? "text-white/65" : "text-[var(--hq-muted)]"}`}>
+                        <p className="text-[10px] mt-1 text-[var(--hq-muted)]">
                           {new Date(m.createdAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </p>
                       </div>
@@ -587,7 +633,26 @@ export function MessagesClient({
                       onClick={stopRecording}
                       className="ml-auto px-4 py-1.5 rounded-full bg-red-500 text-white text-sm font-medium hover:bg-red-600"
                     >
-                      Stop & send
+                      Stop
+                    </button>
+                  </div>
+                ) : voicePreview ? (
+                  <div className="flex items-center gap-2 px-2 py-2 flex-wrap">
+                    <audio controls src={voicePreview.url} className="h-9 max-w-[220px] flex-1" />
+                    <button
+                      type="button"
+                      onClick={discardVoicePreview}
+                      className="px-3 py-1.5 rounded-full text-sm border border-[var(--hq-border)] text-[var(--hq-muted)] hover:bg-[var(--hq-hover)]"
+                    >
+                      Discard
+                    </button>
+                    <button
+                      type="button"
+                      onClick={sendVoicePreview}
+                      disabled={busy}
+                      className="px-4 py-1.5 rounded-full bg-[var(--hq-accent)] text-white text-sm font-medium hover:bg-[var(--hq-accent-hover)] disabled:opacity-40"
+                    >
+                      Send voice
                     </button>
                   </div>
                 ) : (

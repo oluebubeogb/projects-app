@@ -133,7 +133,7 @@ type RemoteMedia = {
 
 type ViewMode = "inline" | "call" | "sidebar";
 
-function shortLabel(id: string, name?: string) {
+function displayName(id: string, name?: string) {
   if (name && name.trim()) return name.trim();
   if (!id || id === "local") return "You";
   if (id === "host") return "Host";
@@ -153,20 +153,42 @@ function StableVideo({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastStreamId = useRef<string | null>(null);
+  const heldStreamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
-    const sid = stream?.id ?? null;
-    if (sid === lastStreamId.current) return;
-    lastStreamId.current = sid;
+    // Keep showing the last live stream briefly if stream briefly becomes null
+    // (avoids sidebar tile blink during renegotiation)
     if (stream) {
-      el.srcObject = stream;
-      el.play().catch(() => {});
-    } else {
-      el.srcObject = null;
+      heldStreamRef.current = stream;
+      const sid = stream.id;
+      if (sid !== lastStreamId.current) {
+        lastStreamId.current = sid;
+        el.srcObject = stream;
+        el.play().catch(() => {});
+      }
+      return;
     }
+    // Only clear after a short grace period
+    const t = window.setTimeout(() => {
+      if (!heldStreamRef.current) return;
+      const stillLive = heldStreamRef.current
+        .getVideoTracks()
+        .some((tr) => tr.readyState === "live");
+      if (!stillLive) {
+        lastStreamId.current = null;
+        heldStreamRef.current = null;
+        el.srcObject = null;
+      }
+    }, 400);
+    return () => clearTimeout(t);
   }, [stream]);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (el) el.muted = muted;
+  }, [muted]);
 
   return (
     <video
@@ -223,7 +245,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   const [viewMode, setViewMode] = useState<ViewMode>("inline");
   const [focusedPeerId, setFocusedPeerId] = useState<string | null>(null);
   const [stoppedFrames, setStoppedFrames] = useState<Record<string, string>>({});
-  const [myName] = useState<string>("You");
+  const [myName, setMyName] = useState<string>("You");
   const [peerNames, setPeerNames] = useState<
     Record<string, { name?: string; avatarUrl?: string | null; avatarColor?: string }>
   >({});
@@ -273,6 +295,22 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
       document.body.classList.remove("call-mode-active");
     };
   }, [inCallOverlay]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/profile");
+        if (!res.ok) return;
+        const data = await res.json();
+        const n = (data.user?.name || data.name || "").trim();
+        if (!cancelled && n) setMyName(n);
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const stopRingtone = useCallback(() => {
     ringtoneRef.current?.stop();
@@ -990,7 +1028,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   allTiles.push({
     id: "local",
     stream: localStreamRef.current,
-    name: shortLabel("local", myName),
+    name: displayName("local", myName),
     isLocal: true,
     isScreen: sharing,
     stoppedFrame: stoppedFrames.local,
@@ -1000,8 +1038,9 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     const hasLiveVideo = rm.stream.getVideoTracks().some((t) => t.readyState === "live");
     allTiles.push({
       id: rm.peerId,
-      stream: hasLiveVideo ? rm.stream : null,
-      name: shortLabel(rm.peerId, rm.name || peerNames[rm.peerId]?.name),
+      // Keep stream object stable even if track is momentarily inactive (reduces tile blink)
+      stream: rm.stream,
+      name: displayName(rm.peerId, rm.name || peerNames[rm.peerId]?.name),
       avatarUrl: rm.avatarUrl || peerNames[rm.peerId]?.avatarUrl,
       avatarColor: rm.avatarColor || peerNames[rm.peerId]?.avatarColor,
       isLocal: false,
@@ -1204,16 +1243,30 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   function ScreenCard({
     tile,
     onFocus,
+    tone = "sidebar",
   }: {
     tile: (typeof allTiles)[0];
     onFocus?: () => void;
+    /** sidebar = light purple empty state; focus = emerald green empty/panel */
+    tone?: "sidebar" | "focus";
   }) {
     const hasLive = !!tile.stream?.getVideoTracks().some((t) => t.readyState === "live");
     const showStopped = !hasLive && !!tile.stoppedFrame;
+    const emptyBg =
+      tone === "focus"
+        ? "bg-emerald-500/15 border border-emerald-500/25"
+        : "bg-[rgba(92,93,226,0.12)] border border-[rgba(92,93,226,0.22)]";
+    const emptyText =
+      tone === "focus" ? "text-emerald-600/70 dark:text-emerald-400/70" : "text-[var(--hq-accent)]/70";
 
     return (
       <div className="flex flex-col min-w-0">
-        <div className="relative w-full overflow-hidden rounded-lg bg-black/50 aspect-video">
+        <div
+          className={cn(
+            "relative w-full overflow-hidden rounded-lg aspect-video",
+            hasLive || showStopped ? "bg-black/50" : emptyBg
+          )}
+        >
           {hasLive && tile.stream ? (
             <StableVideo
               stream={tile.stream}
@@ -1251,14 +1304,14 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
               </div>
             </div>
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-[10px] sm:text-xs text-white/50">
+            <div className={cn("w-full h-full flex items-center justify-center text-[10px] sm:text-xs", emptyText)}>
               {tile.isLocal ? (camOn || sharing ? "…" : "No video") : "Waiting…"}
             </div>
           )}
         </div>
         <div className="mt-1 flex items-center gap-1 min-w-0 px-0.5">
           <span
-            className="text-[10px] sm:text-[11px] font-bold text-[var(--hq-text)] truncate leading-tight"
+            className="text-[10px] sm:text-[11px] font-semibold text-[var(--hq-text)] truncate leading-tight"
             title={tile.name}
           >
             {tile.name}
@@ -1360,7 +1413,12 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
               {focused ? (
                 <>
                   <div
-                    className="flex-1 min-h-0 relative rounded-xl overflow-hidden bg-black/60"
+                    className={cn(
+                      "flex-1 min-h-0 relative rounded-xl overflow-hidden",
+                      focused.stream && focused.stream.getVideoTracks().some((t) => t.readyState === "live")
+                        ? "bg-black/60"
+                        : "bg-emerald-500/15 border border-emerald-500/25"
+                    )}
                     data-focused-video
                   >
                     {focused.stream &&

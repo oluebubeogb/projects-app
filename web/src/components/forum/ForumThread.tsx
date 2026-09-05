@@ -77,7 +77,11 @@ export function ForumThread({
           return (
             <div
               key={p.id}
-              className={`flex gap-3 p-3 rounded-[var(--hq-radius)] border border-[var(--hq-border)] bg-[var(--hq-surface)] max-w-[92%] ${mine ? "ml-auto flex-row-reverse" : "mr-auto"}`}
+              className={`flex gap-3 p-3 rounded-[var(--hq-radius)] border max-w-[92%] ${
+                mine
+                  ? "ml-auto flex-row-reverse bg-[rgba(92,93,226,0.10)] border-[rgba(92,93,226,0.22)]"
+                  : "mr-auto bg-[var(--hq-surface)] border-[var(--hq-border)]"
+              }`}
             >
               <div
                 className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"

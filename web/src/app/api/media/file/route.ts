@@ -19,6 +19,51 @@ function safeJoin(root: string, rel: string) {
   return resolved;
 }
 
+function mimeFromPath(p: string): string {
+  const lower = p.toLowerCase();
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".svg")) return "image/svg+xml";
+  if (lower.endsWith(".webm")) return "audio/webm";
+  if (lower.endsWith(".ogg") || lower.endsWith(".oga")) return "audio/ogg";
+  if (lower.endsWith(".mp3")) return "audio/mpeg";
+  if (lower.endsWith(".wav")) return "audio/wav";
+  if (lower.endsWith(".mp4")) return "video/mp4";
+  if (lower.endsWith(".txt")) return "text/plain; charset=utf-8";
+  if (lower.endsWith(".json")) return "application/json";
+  if (lower.endsWith(".doc")) return "application/msword";
+  if (lower.endsWith(".docx"))
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (lower.endsWith(".xls")) return "application/vnd.ms-excel";
+  if (lower.endsWith(".xlsx"))
+    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (lower.endsWith(".zip")) return "application/zip";
+  return "application/octet-stream";
+}
+
+function fileResponse(buf: Buffer, filePath: string, downloadName?: string) {
+  const mime = mimeFromPath(filePath);
+  const name = downloadName || path.basename(filePath);
+  // Inline for viewable types (PDF, images, audio); attachment only for opaque binaries
+  const inline =
+    mime.startsWith("image/") ||
+    mime.startsWith("audio/") ||
+    mime.startsWith("video/") ||
+    mime === "application/pdf" ||
+    mime.startsWith("text/");
+  return new NextResponse(buf, {
+    headers: {
+      "Content-Type": mime,
+      "Content-Length": String(buf.length),
+      "Cache-Control": "public, max-age=86400",
+      "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(name)}"`,
+    },
+  });
+}
+
 export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
   const relPath = req.nextUrl.searchParams.get("path");
@@ -39,32 +84,10 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: "File missing" }, { status: 404 });
       }
       const buf = fs.readFileSync(orig);
-      const mime = relPath.endsWith(".webp")
-        ? "image/webp"
-        : relPath.endsWith(".webm")
-        ? "audio/webm"
-        : "application/octet-stream";
-      return new NextResponse(buf, {
-        headers: {
-          "Content-Type": mime,
-          "Content-Length": String(buf.length),
-          "Cache-Control": "public, max-age=86400",
-        },
-      });
+      return fileResponse(buf, orig, path.basename(relPath));
     }
     const buf = fs.readFileSync(filePath);
-    const mime = filePath.endsWith(".webp")
-      ? "image/webp"
-      : filePath.endsWith(".webm") || filePath.endsWith(".ogg")
-      ? "audio/webm"
-      : "application/octet-stream";
-    return new NextResponse(buf, {
-      headers: {
-        "Content-Type": mime,
-        "Content-Length": String(buf.length),
-        "Cache-Control": "public, max-age=86400",
-      },
-    });
+    return fileResponse(buf, filePath, path.basename(relPath));
   }
 
   if (!id) return NextResponse.json({ error: "id or path required" }, { status: 400 });
