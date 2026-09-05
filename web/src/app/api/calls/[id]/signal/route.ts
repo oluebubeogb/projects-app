@@ -11,14 +11,15 @@ type Ctx = { params: Promise<{ id: string }> };
 type Signal = {
   id: string;
   from: string;
+  /** optional target user id — if set, only that user should process it */
+  to?: string | null;
   type: string;
   payload: unknown;
   at: number;
 };
 
-/** In-memory signal buffer per room (single-instance). Cleared when room closes. */
 const roomSignals = new Map<string, Signal[]>();
-const MAX_SIGNALS = 200;
+const MAX_SIGNALS = 400;
 
 function getBuf(roomId: string) {
   let buf = roomSignals.get(roomId);
@@ -38,9 +39,12 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const rooms = await db.select().from(callRooms).where(eq(callRooms.id, id)).limit(1);
   const room = rooms[0];
   if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
-  if (room.status !== "open") return NextResponse.json({ error: "Room closed" }, { status: 410 });
+  // Allow signaling while open (ringing) OR live (in call). Only block closed.
+  if (room.status === "closed") {
+    return NextResponse.json({ error: "Room closed" }, { status: 410 });
+  }
 
-  let body: { type?: string; payload?: unknown };
+  let body: { type?: string; payload?: unknown; to?: string };
   try {
     body = await req.json();
   } catch {
@@ -50,6 +54,21 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const type = (body.type || "").trim();
   if (!type) return NextResponse.json({ error: "type required" }, { status: 400 });
 
+  // Participant leaving — does NOT close the room for others
+  if (type === "leave") {
+    const buf = getBuf(id);
+    buf.push({
+      id: `${Date.now()}-leave`,
+      from: session.id,
+      to: null,
+      type: "leave",
+      payload: body.payload ?? null,
+      at: Date.now(),
+    });
+    return NextResponse.json({ ok: true, left: true });
+  }
+
+  // Host (or anyone) ending the whole room for everyone
   if (type === "hangup") {
     const now = Math.floor(Date.now() / 1000);
     await db
@@ -64,6 +83,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const sig: Signal = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     from: session.id,
+    to: body.to || null,
     type,
     payload: body.payload ?? null,
     at: Date.now(),
@@ -82,7 +102,13 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
   const since = Number(req.nextUrl.searchParams.get("since") || "0") || 0;
   const buf = roomSignals.get(id) || [];
-  const signals = buf.filter((s) => s.at > since && s.from !== session.id);
+  // Deliver signals from others; if `to` is set, only the target receives it
+  const signals = buf.filter(
+    (s) =>
+      s.at > since &&
+      s.from !== session.id &&
+      (!s.to || s.to === session.id)
+  );
 
   return NextResponse.json({
     signals,

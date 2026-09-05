@@ -11,6 +11,7 @@ import {
   VideoOff,
   PhoneIncoming,
   Volume2,
+  PhoneCall,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -29,7 +30,7 @@ const RINGTONE_LABELS: Record<RingtoneId, string> = {
   soft: "Soft wave",
 };
 
-const RING_TIMEOUT_MS = 180_000; // 3 minutes unanswered ring
+const RING_TIMEOUT_MS = 180_000; // 3 minutes
 
 function createRingtonePlayer(id: RingtoneId) {
   let ctx: AudioContext | null = null;
@@ -99,15 +100,18 @@ function playNotificationTone() {
   } catch {}
 }
 
+type RemoteMedia = { peerId: string; stream: MediaStream };
+
 export function CallPanel({ kind = "dm", contextId, className, compact = false }: Props) {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "ringing" | "connecting" | "live" | "error">("idle");
-  const [incoming, setIncoming] = useState<{ id: string; hostId: string } | null>(null);
+  const [incoming, setIncoming] = useState<{ id: string; hostId: string; status: string } | null>(null);
   const [muted, setMuted] = useState(false);
   const [camOn, setCamOn] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [myId, setMyId] = useState<string | null>(null);
+  const [remoteMedias, setRemoteMedias] = useState<RemoteMedia[]>([]);
   const [ringtone, setRingtone] = useState<RingtoneId>(() => {
     if (typeof window === "undefined") return "chime";
     return (localStorage.getItem("call-ringtone") as RingtoneId) || "chime";
@@ -116,9 +120,11 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   const [ringSecondsLeft, setRingSecondsLeft] = useState(180);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
+
+  // Host: one PC per remote peer. Guest: single PC to host.
+  const hostPcsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const guestPcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const roomPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -129,12 +135,19 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   const ringtoneRef = useRef<ReturnType<typeof createRingtonePlayer> | null>(null);
   const roomIdRef = useRef<string | null>(null);
   const statusRef = useRef(status);
-  const handledRoomsRef = useRef<Set<string>>(new Set());
-  const peerJoinedRef = useRef(false);
+  const myIdRef = useRef<string | null>(null);
+  const declinedRoomsRef = useRef<Set<string>>(new Set());
+  const remoteStreamsRef = useRef<Map<string, MediaStream>>(new Map());
 
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+  useEffect(() => {
+    myIdRef.current = myId;
+  }, [myId]);
+  useEffect(() => {
+    roomIdRef.current = roomId;
+  }, [roomId]);
 
   const stopRingtone = useCallback(() => {
     ringtoneRef.current?.stop();
@@ -149,64 +162,105 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     }
   }, []);
 
-  const cleanup = useCallback(() => {
+  const updateRemoteMedias = useCallback(() => {
+    const list: RemoteMedia[] = [];
+    remoteStreamsRef.current.forEach((stream, peerId) => {
+      list.push({ peerId, stream });
+    });
+    setRemoteMedias(list);
+    // Mix first remote audio into hidden audio element
+    if (remoteAudioRef.current && list[0]) {
+      remoteAudioRef.current.srcObject = list[0].stream;
+      remoteAudioRef.current.play().catch(() => {});
+    }
+  }, []);
+
+  const cleanupMedia = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = null;
-    pcRef.current?.close();
-    pcRef.current = null;
+    hostPcsRef.current.forEach((pc) => pc.close());
+    hostPcsRef.current.clear();
+    guestPcRef.current?.close();
+    guestPcRef.current = null;
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+    remoteStreamsRef.current.clear();
+    setRemoteMedias([]);
     stopRingtone();
   }, [stopRingtone]);
 
   useEffect(() => () => {
-    cleanup();
+    cleanupMedia();
     if (roomPollRef.current) clearInterval(roomPollRef.current);
-  }, [cleanup]);
+  }, [cleanupMedia]);
 
-  useEffect(() => {
-    roomIdRef.current = roomId;
-  }, [roomId]);
-
-  async function ensurePc() {
-    if (pcRef.current) return pcRef.current;
-    const pc = new RTCPeerConnection({
+  function iceServers(): RTCConfiguration {
+    return {
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
       ],
+    };
+  }
+
+  async function postSignal(rid: string, type: string, payload?: unknown, to?: string) {
+    await fetch(`/api/calls/${rid}/signal`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, payload, to }),
     });
+  }
+
+  function attachLocalTracks(pc: RTCPeerConnection) {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    for (const track of stream.getTracks()) {
+      const already = pc.getSenders().some((s) => s.track?.id === track.id);
+      if (!already) pc.addTrack(track, stream);
+    }
+  }
+
+  function createHostPc(peerId: string): RTCPeerConnection {
+    const existing = hostPcsRef.current.get(peerId);
+    if (existing) {
+      existing.close();
+      hostPcsRef.current.delete(peerId);
+    }
+    const pc = new RTCPeerConnection(iceServers());
     pc.onicecandidate = (e) => {
       if (e.candidate && roomIdRef.current) {
-        fetch(`/api/calls/${roomIdRef.current}/signal`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "ice", payload: e.candidate }),
-        }).catch(() => {});
+        postSignal(roomIdRef.current, "ice", e.candidate, peerId).catch(() => {});
       }
     };
     pc.ontrack = (e) => {
       const stream = e.streams[0];
       if (!stream) return;
-      // Attach audio
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = stream;
-        remoteAudioRef.current.play().catch(() => {});
-      }
-      // Attach video if present
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = stream;
+      remoteStreamsRef.current.set(peerId, stream);
+      updateRemoteMedias();
+    };
+    attachLocalTracks(pc);
+    hostPcsRef.current.set(peerId, pc);
+    return pc;
+  }
+
+  function createGuestPc(): RTCPeerConnection {
+    guestPcRef.current?.close();
+    const pc = new RTCPeerConnection(iceServers());
+    pc.onicecandidate = (e) => {
+      if (e.candidate && roomIdRef.current) {
+        postSignal(roomIdRef.current, "ice", e.candidate).catch(() => {});
       }
     };
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
-        // soft recovery — keep UI, user can end
-      }
+    pc.ontrack = (e) => {
+      const stream = e.streams[0];
+      if (!stream) return;
+      remoteStreamsRef.current.set("host", stream);
+      updateRemoteMedias();
     };
-    pcRef.current = pc;
+    attachLocalTracks(pc);
+    guestPcRef.current = pc;
     return pc;
   }
 
@@ -226,7 +280,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
 
   function startPolling(rid: string) {
     if (pollRef.current) clearInterval(pollRef.current);
-    sinceRef.current = Date.now() - 2000;
+    sinceRef.current = Date.now() - 1500;
     pollRef.current = setInterval(async () => {
       try {
         const res = await fetch(`/api/calls/${rid}/signal?since=${sinceRef.current}`);
@@ -237,58 +291,113 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
           await handleSignal(s);
         }
       } catch {}
-    }, 800);
+    }, 700);
   }
 
-  async function handleSignal(s: { from: string; type: string; payload: unknown }) {
-    const pc = await ensurePc();
+  async function handleSignal(s: {
+    from: string;
+    to?: string | null;
+    type: string;
+    payload: unknown;
+  }) {
     try {
+      // Host receives join-request from a participant → create PC + offer for them
+      if (s.type === "join-request" && isHostRef.current) {
+        const peerId = s.from;
+        const pc = createHostPc(peerId);
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true,
+        });
+        await pc.setLocalDescription(offer);
+        await postSignal(roomIdRef.current!, "offer", offer, peerId);
+        return;
+      }
+
+      // Guest receives offer (targeted or broadcast)
       if (s.type === "offer" && !isHostRef.current) {
+        const pc = guestPcRef.current || createGuestPc();
         await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
-        // ensure local tracks are on the pc before answering
-        if (localStreamRef.current) {
-          for (const track of localStreamRef.current.getTracks()) {
-            const already = pc.getSenders().some((snd) => snd.track?.id === track.id);
-            if (!already) pc.addTrack(track, localStreamRef.current);
-          }
+        attachLocalTracks(pc);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await postSignal(roomIdRef.current!, "answer", answer);
+        setStatus("live");
+        stopRingtone();
+        return;
+      }
+
+      // Host receives answer from a specific peer
+      if (s.type === "answer" && isHostRef.current) {
+        const pc = hostPcsRef.current.get(s.from);
+        if (pc) {
+          await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
         }
+        setStatus("live");
+        return;
+      }
+
+      if (s.type === "ice") {
+        const candidate = s.payload as RTCIceCandidateInit;
+        if (isHostRef.current) {
+          const pc = hostPcsRef.current.get(s.from);
+          if (pc) {
+            try {
+              await pc.addIceCandidate(candidate);
+            } catch {}
+          }
+        } else if (guestPcRef.current) {
+          try {
+            await guestPcRef.current.addIceCandidate(candidate);
+          } catch {}
+        }
+        return;
+      }
+
+      // Peer left — host cleans their PC; room stays open
+      if (s.type === "leave") {
+        if (isHostRef.current) {
+          const pc = hostPcsRef.current.get(s.from);
+          if (pc) {
+            pc.close();
+            hostPcsRef.current.delete(s.from);
+          }
+          remoteStreamsRef.current.delete(s.from);
+          updateRemoteMedias();
+        }
+        return;
+      }
+
+      // Whole room ended
+      if (s.type === "hangup") {
+        leaveCall(false, true);
+        return;
+      }
+
+      // Renegotiation for screen/cam (host → specific peer or guest)
+      if (s.type === "renegotiate-offer") {
+        const pc = isHostRef.current
+          ? hostPcsRef.current.get(s.from)
+          : guestPcRef.current;
+        if (!pc) return;
+        await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        await fetch(`/api/calls/${roomIdRef.current}/signal`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "answer", payload: answer }),
-        });
-        setStatus("live");
-        stopRingtone();
-      } else if (s.type === "answer" && isHostRef.current) {
-        await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
-        peerJoinedRef.current = true;
-        stopRingtone();
-        setStatus("live");
-        // Mark room live on server so it is not auto-closed
-        fetch("/api/calls", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: roomIdRef.current, status: "live" }),
-        }).catch(() => {});
-      } else if (s.type === "ice") {
-        try {
-          await pc.addIceCandidate(s.payload as RTCIceCandidateInit);
-        } catch {}
-      } else if (s.type === "renegotiate-offer") {
-        await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        await fetch(`/api/calls/${roomIdRef.current}/signal`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "renegotiate-answer", payload: answer }),
-        });
-      } else if (s.type === "renegotiate-answer") {
-        await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
-      } else if (s.type === "hangup") {
-        endCall(false);
+        await postSignal(
+          roomIdRef.current!,
+          "renegotiate-answer",
+          answer,
+          isHostRef.current ? undefined : s.from
+        );
+        return;
+      }
+      if (s.type === "renegotiate-answer") {
+        const pc = isHostRef.current
+          ? hostPcsRef.current.get(s.from)
+          : guestPcRef.current;
+        if (pc) {
+          await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
+        }
       }
     } catch (err) {
       console.warn("[call signal]", err);
@@ -296,7 +405,6 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   }
 
   function beginRingTimeout(roomIdToExpire: string, playSound: boolean) {
-    // Clear any previous ring timers first
     stopRingtone();
     setRingSecondsLeft(180);
     if (playSound) {
@@ -307,27 +415,16 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
       setRingSecondsLeft((s) => Math.max(0, s - 1));
     }, 1000);
     ringTimeoutRef.current = setTimeout(() => {
-      // Only act if still waiting for an answer — never kill an active live call
       stopRingtone();
+      // Only clear ringing UI — do not kill a live call
       if (statusRef.current === "ringing") {
-        handledRoomsRef.current.add(roomIdToExpire);
-        setIncoming(null);
+        setIncoming((cur) => (cur?.id === roomIdToExpire ? null : cur));
         setStatus("idle");
-        fetch(`/api/calls?id=${encodeURIComponent(roomIdToExpire)}`, { method: "DELETE" }).catch(() => {});
-      } else if (
-        statusRef.current === "live" &&
-        isHostRef.current &&
-        !peerJoinedRef.current
-      ) {
-        // Host rang for 3 min, nobody answered — end unanswered outbound call
-        handledRoomsRef.current.add(roomIdToExpire);
-        endCall(true);
       }
-      // If live and peer joined, do nothing — call stays up
     }, RING_TIMEOUT_MS);
   }
 
-  // Poll for incoming calls — only ring for rooms NOT hosted by me, not already handled, and fresh
+  // Discover open / live rooms — ring for open, show Join for live
   useEffect(() => {
     if (!contextId) return;
 
@@ -337,7 +434,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
         if (!res.ok) return;
         const data = await res.json();
         if (data.me) setMyId(data.me);
-        const me = data.me as string | null;
+        const me = (data.me as string) || myIdRef.current;
         const rooms = (data.rooms || []) as {
           id: string;
           hostId: string;
@@ -345,21 +442,38 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
           createdAt: number;
         }[];
 
-        const open = rooms.find(
+        // Already in a call — ignore
+        if (roomIdRef.current || statusRef.current === "live" || statusRef.current === "connecting") {
+          return;
+        }
+
+        const ringing = rooms.find(
           (r) =>
             r.status === "open" &&
             r.hostId !== me &&
-            !handledRoomsRef.current.has(r.id)
+            !declinedRoomsRef.current.has(r.id)
         );
+        // Live rooms can always be joined/rejoined (even if ring was declined)
+        const liveRoom = rooms.find((r) => r.status === "live" && r.hostId !== me);
 
-        if (open && !roomIdRef.current && statusRef.current === "idle") {
-          setIncoming({ id: open.id, hostId: open.hostId });
+        if (ringing && statusRef.current === "idle") {
+          setIncoming({ id: ringing.id, hostId: ringing.hostId, status: "open" });
           setStatus("ringing");
-          beginRingTimeout(open.id, true);
-        } else if (!open && statusRef.current === "ringing" && !roomIdRef.current) {
-          // room vanished / expired
+          beginRingTimeout(ringing.id, true);
+        } else if (liveRoom && statusRef.current === "idle") {
+          // Ongoing call others can still join — no ring, just join affordance
+          stopRingtone();
+          setIncoming({ id: liveRoom.id, hostId: liveRoom.hostId, status: "live" });
+          // stay idle visually but show join via incoming banner with status live
+          setStatus("idle");
+        } else if (!ringing && !liveRoom && statusRef.current === "ringing") {
           stopRingtone();
           setIncoming(null);
+          setStatus("idle");
+        } else if (liveRoom && statusRef.current === "ringing") {
+          // Someone answered — stop MY ring but keep ability to join
+          stopRingtone();
+          setIncoming({ id: liveRoom.id, hostId: liveRoom.hostId, status: "live" });
           setStatus("idle");
         }
       } catch {}
@@ -388,87 +502,79 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
       if (!res.ok) throw new Error(data.error || "Failed to create room");
       setRoomId(data.id);
       roomIdRef.current = data.id;
-      handledRoomsRef.current.add(data.id);
 
-      const stream = await getLocalStream(false);
-      const pc = await ensurePc();
-      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-
-      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
-      await pc.setLocalDescription(offer);
-      await fetch(`/api/calls/${data.id}/signal`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "offer", payload: offer }),
-      });
+      await getLocalStream(false);
       startPolling(data.id);
-      peerJoinedRef.current = false;
-      // Wait up to 3 min for someone to answer — do NOT play ringtone on host,
-      // and do NOT end the call if peer already joined
-      beginRingTimeout(data.id, false);
+      // Host waits for join-request from each peer (works for 1:1 and groups)
       setStatus("live");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Could not start call";
       setError(msg);
       setStatus("error");
-      cleanup();
+      cleanupMedia();
     }
   }
 
-  async function acceptIncoming() {
-    if (!incoming) return;
-    stopRingtone(); // stop ring immediately on answer
-    peerJoinedRef.current = true;
+  async function joinRoom(targetRoomId: string) {
+    stopRingtone();
     setStatus("connecting");
     isHostRef.current = false;
-    setRoomId(incoming.id);
-    roomIdRef.current = incoming.id;
-    handledRoomsRef.current.add(incoming.id);
+    setRoomId(targetRoomId);
+    roomIdRef.current = targetRoomId;
+    setIncoming(null);
     try {
-      const stream = await getLocalStream(false);
-      const pc = await ensurePc();
-      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-      startPolling(incoming.id);
-      // Mark room live — stays open until hangup
+      await getLocalStream(false);
+      createGuestPc();
+      startPolling(targetRoomId);
+      // Ask host for an offer
+      await postSignal(targetRoomId, "join-request", {});
+      // Mark room live so it stays open for others
       fetch("/api/calls", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: incoming.id, status: "live" }),
+        body: JSON.stringify({ id: targetRoomId, status: "live" }),
       }).catch(() => {});
-      setIncoming(null);
       setStatus("live");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Could not join";
       setError(msg);
       setStatus("error");
-      cleanup();
+      cleanupMedia();
     }
+  }
+
+  function acceptIncoming() {
+    if (!incoming) return;
+    joinRoom(incoming.id);
   }
 
   function declineIncoming() {
     if (incoming) {
-      handledRoomsRef.current.add(incoming.id);
-      fetch(`/api/calls/${incoming.id}/signal`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "hangup", payload: {} }),
-      }).catch(() => {});
+      // Only decline for this user — room stays active for others
+      declinedRoomsRef.current.add(incoming.id);
     }
     stopRingtone();
     setIncoming(null);
     setStatus("idle");
   }
 
-  function endCall(notify = true) {
-    if (notify && roomIdRef.current) {
-      fetch(`/api/calls/${roomIdRef.current}/signal`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "hangup", payload: {} }),
-      }).catch(() => {});
-      fetch(`/api/calls?id=${encodeURIComponent(roomIdRef.current)}`, { method: "DELETE" }).catch(() => {});
+  /** Leave without ending the room for everyone */
+  function leaveCall(notifyLeave = true, forcedHangup = false) {
+    const rid = roomIdRef.current;
+    if (rid && notifyLeave && !forcedHangup) {
+      postSignal(rid, "leave", {}).catch(() => {});
     }
-    cleanup();
+    if (forcedHangup && rid) {
+      postSignal(rid, "hangup", {}).catch(() => {});
+      fetch(`/api/calls?id=${encodeURIComponent(rid)}`, { method: "DELETE" }).catch(() => {});
+    }
+    // Host ending entirely
+    if (isHostRef.current && rid && !forcedHangup) {
+      // If host leaves, end room for everyone (star topology needs host)
+      postSignal(rid, "hangup", {}).catch(() => {});
+      fetch(`/api/calls?id=${encodeURIComponent(rid)}`, { method: "DELETE" }).catch(() => {});
+    }
+    cleanupMedia();
     setRoomId(null);
     roomIdRef.current = null;
     setIncoming(null);
@@ -477,7 +583,10 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     setCamOn(false);
     setSharing(false);
     isHostRef.current = false;
-    peerJoinedRef.current = false;
+  }
+
+  function endCallForEveryone() {
+    leaveCall(false, true);
   }
 
   function toggleMute() {
@@ -488,92 +597,103 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     }
   }
 
-  async function toggleCam() {
-    const pc = pcRef.current;
-    if (!pc || !localStreamRef.current) return;
+  async function renegotiateAll() {
+    if (isHostRef.current) {
+      for (const [peerId, pc] of hostPcsRef.current) {
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          await postSignal(roomIdRef.current!, "renegotiate-offer", offer, peerId);
+        } catch (e) {
+          console.warn("[renegotiate host]", e);
+        }
+      }
+    } else if (guestPcRef.current && roomIdRef.current) {
+      try {
+        const offer = await guestPcRef.current.createOffer();
+        await guestPcRef.current.setLocalDescription(offer);
+        await postSignal(roomIdRef.current, "renegotiate-offer", offer);
+      } catch (e) {
+        console.warn("[renegotiate guest]", e);
+      }
+    }
+  }
 
+  async function toggleCam() {
+    if (!localStreamRef.current) return;
     if (camOn) {
       localStreamRef.current.getVideoTracks().forEach((t) => {
         t.stop();
         localStreamRef.current?.removeTrack(t);
-        const sender = pc.getSenders().find((s) => s.track?.id === t.id);
-        if (sender) pc.removeTrack(sender);
+        const removeFrom = (pc: RTCPeerConnection) => {
+          const sender = pc.getSenders().find((s) => s.track?.id === t.id);
+          if (sender) pc.removeTrack(sender);
+        };
+        hostPcsRef.current.forEach(removeFrom);
+        if (guestPcRef.current) removeFrom(guestPcRef.current);
       });
       setCamOn(false);
-      await renegotiate();
+      await renegotiateAll();
       return;
     }
-
     try {
       const vs = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480 },
       });
       const track = vs.getVideoTracks()[0];
       localStreamRef.current.addTrack(track);
-      pc.addTrack(track, localStreamRef.current);
+      hostPcsRef.current.forEach((pc) => pc.addTrack(track, localStreamRef.current!));
+      if (guestPcRef.current) guestPcRef.current.addTrack(track, localStreamRef.current);
       if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
       setCamOn(true);
-      await renegotiate();
+      await renegotiateAll();
     } catch {
       setError("Camera unavailable");
     }
   }
 
-  async function renegotiate() {
-    const pc = pcRef.current;
-    if (!pc || !roomIdRef.current) return;
-    try {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await fetch(`/api/calls/${roomIdRef.current}/signal`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "renegotiate-offer", payload: offer }),
-      });
-    } catch (e) {
-      console.warn("[renegotiate]", e);
-    }
-  }
-
   async function toggleShare() {
-    const pc = pcRef.current;
-    if (!pc || !localStreamRef.current) return;
-
+    if (!localStreamRef.current) return;
     if (sharing) {
       localStreamRef.current.getVideoTracks().forEach((t) => {
         const settings = t.getSettings() as { displaySurface?: string };
         if (settings.displaySurface || t.label.toLowerCase().includes("screen")) {
           t.stop();
           localStreamRef.current?.removeTrack(t);
-          const sender = pc.getSenders().find((s) => s.track?.id === t.id);
-          if (sender) pc.removeTrack(sender);
+          const removeFrom = (pc: RTCPeerConnection) => {
+            const sender = pc.getSenders().find((s) => s.track?.id === t.id);
+            if (sender) pc.removeTrack(sender);
+          };
+          hostPcsRef.current.forEach(removeFrom);
+          if (guestPcRef.current) removeFrom(guestPcRef.current);
         }
       });
       setSharing(false);
-      await renegotiate();
+      await renegotiateAll();
       return;
     }
-
     try {
-      const ds = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: false,
-      });
+      const ds = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
       const track = ds.getVideoTracks()[0];
       track.onended = () => {
         setSharing(false);
-        const sender = pc.getSenders().find((s) => s.track?.id === track.id);
-        if (sender) pc.removeTrack(sender);
         localStreamRef.current?.removeTrack(track);
-        renegotiate();
+        const removeFrom = (pc: RTCPeerConnection) => {
+          const sender = pc.getSenders().find((s) => s.track?.id === track.id);
+          if (sender) pc.removeTrack(sender);
+        };
+        hostPcsRef.current.forEach(removeFrom);
+        if (guestPcRef.current) removeFrom(guestPcRef.current);
+        renegotiateAll();
       };
       localStreamRef.current.addTrack(track);
-      pc.addTrack(track, localStreamRef.current);
+      hostPcsRef.current.forEach((pc) => pc.addTrack(track, localStreamRef.current!));
+      if (guestPcRef.current) guestPcRef.current.addTrack(track, localStreamRef.current);
       if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
       setSharing(true);
-      await renegotiate();
+      await renegotiateAll();
     } catch {
-      /* user cancelled */
+      /* cancelled */
     }
   }
 
@@ -586,36 +706,29 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     setTimeout(() => p.stop(), 1800);
   }
 
+  const inCall = status === "live" || status === "connecting";
+  const showJoinLive = !inCall && incoming?.status === "live";
+  const showIncomingRing = status === "ringing" && incoming?.status === "open";
+
   // ——— Compact ———
   if (compact) {
     return (
       <div className={cn("relative inline-flex", className)}>
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
-        {status === "ringing" ? (
-          <button
-            type="button"
-            onClick={acceptIncoming}
-            className="p-2 rounded-lg bg-emerald-500/15 text-emerald-500 animate-pulse"
-            title={`Incoming call (${ringSecondsLeft}s)`}
-          >
+        {showIncomingRing ? (
+          <button type="button" onClick={acceptIncoming} className="p-2 rounded-lg bg-emerald-500/15 text-emerald-500 animate-pulse" title="Answer">
             <PhoneIncoming size={18} />
           </button>
-        ) : status === "live" || status === "connecting" ? (
-          <button
-            type="button"
-            onClick={() => endCall()}
-            className="p-2 rounded-lg bg-red-500/15 text-red-500"
-            title="End call"
-          >
+        ) : showJoinLive ? (
+          <button type="button" onClick={acceptIncoming} className="p-2 rounded-lg bg-emerald-500/15 text-emerald-600" title="Join call">
+            <PhoneCall size={18} />
+          </button>
+        ) : inCall ? (
+          <button type="button" onClick={() => leaveCall(true)} className="p-2 rounded-lg bg-red-500/15 text-red-500" title="Leave call">
             <PhoneOff size={18} />
           </button>
         ) : (
-          <button
-            type="button"
-            onClick={startCall}
-            className="p-2 rounded-lg text-[var(--hq-muted)] hover:bg-[var(--hq-hover)] hover:text-[var(--hq-text)]"
-            title="Start voice call"
-          >
+          <button type="button" onClick={startCall} className="p-2 rounded-lg text-[var(--hq-muted)] hover:bg-[var(--hq-hover)] hover:text-[var(--hq-text)]" title="Start call">
             <Phone size={18} />
           </button>
         )}
@@ -623,12 +736,12 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     );
   }
 
-  // ——— Full panel ———
+  // ——— Full ———
   return (
     <div className={cn("rounded-xl border border-[var(--hq-border)] bg-[var(--hq-bg)]/50 p-3", className)}>
       <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
 
-      {status === "ringing" && incoming && (
+      {showIncomingRing && (
         <div className="mb-3 flex items-center gap-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-3">
           <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-500 animate-pulse">
             <PhoneIncoming size={20} />
@@ -636,28 +749,35 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">Incoming call</p>
             <p className="text-xs text-[var(--hq-muted)]">
-              Rings for {ringSecondsLeft}s (max 3 min) — stops when answered or declined
+              {ringSecondsLeft}s left — others can still join after someone answers
             </p>
           </div>
-          <button
-            type="button"
-            onClick={acceptIncoming}
-            className="px-3 py-1.5 rounded-full bg-emerald-500 text-white text-xs font-medium hover:bg-emerald-600"
-          >
+          <button type="button" onClick={acceptIncoming} className="px-3 py-1.5 rounded-full bg-emerald-500 text-white text-xs font-medium hover:bg-emerald-600">
             Answer
           </button>
-          <button
-            type="button"
-            onClick={declineIncoming}
-            className="px-3 py-1.5 rounded-full border border-[var(--hq-border)] text-xs text-[var(--hq-muted)] hover:bg-[var(--hq-hover)]"
-          >
+          <button type="button" onClick={declineIncoming} className="px-3 py-1.5 rounded-full border border-[var(--hq-border)] text-xs text-[var(--hq-muted)] hover:bg-[var(--hq-hover)]">
             Decline
           </button>
         </div>
       )}
 
+      {showJoinLive && (
+        <div className="mb-3 flex items-center gap-3 rounded-xl bg-[var(--hq-accent)]/10 border border-[var(--hq-accent)]/30 px-3 py-3">
+          <div className="w-10 h-10 rounded-full bg-[var(--hq-accent)]/20 flex items-center justify-center text-[var(--hq-accent)]">
+            <PhoneCall size={20} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold">Call in progress</p>
+            <p className="text-xs text-[var(--hq-muted)]">Join anytime while the room is active</p>
+          </div>
+          <button type="button" onClick={acceptIncoming} className="px-3 py-1.5 rounded-full bg-[var(--hq-accent)] text-white text-xs font-medium hover:bg-[var(--hq-accent-hover)]">
+            Join
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
-        {status === "idle" || status === "error" ? (
+        {!inCall ? (
           <>
             <button
               type="button"
@@ -671,7 +791,6 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
               type="button"
               onClick={() => setShowRingtonePicker((v) => !v)}
               className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[var(--hq-muted)] hover:bg-[var(--hq-hover)] text-xs"
-              title="Ringtone"
             >
               <Volume2 size={14} />
               {RINGTONE_LABELS[ringtone]}
@@ -679,32 +798,26 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
           </>
         ) : (
           <>
-            <span
-              className={cn(
-                "text-xs font-medium px-2 py-0.5 rounded-full",
-                status === "live" && "bg-emerald-500/15 text-emerald-600",
-                status === "connecting" && "bg-amber-500/15 text-amber-600",
-                status === "ringing" && "bg-emerald-500/15 text-emerald-600"
-              )}
-            >
-              {status === "live"
-                ? "In call"
-                : status === "connecting"
-                ? "Connecting…"
-                : `Ringing… ${ringSecondsLeft}s`}
+            <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full", status === "live" ? "bg-emerald-500/15 text-emerald-600" : "bg-amber-500/15 text-amber-600")}>
+              {status === "live" ? "In call" : "Connecting…"}
             </span>
             <button type="button" onClick={toggleMute} className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]" title={muted ? "Unmute" : "Mute"}>
               {muted ? <MicOff size={16} /> : <Mic size={16} />}
             </button>
-            <button type="button" onClick={toggleCam} className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]" title={camOn ? "Camera off" : "Camera on"}>
+            <button type="button" onClick={toggleCam} className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]" title="Camera">
               {camOn ? <Video size={16} /> : <VideoOff size={16} />}
             </button>
             <button type="button" onClick={toggleShare} className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]" title="Share screen">
               <Monitor size={16} className={sharing ? "text-[var(--hq-accent)]" : ""} />
             </button>
-            <button type="button" onClick={() => endCall()} className="p-1.5 rounded-lg bg-red-500/15 text-red-500 hover:bg-red-500/25" title="End call">
-              <PhoneOff size={16} />
+            <button type="button" onClick={() => leaveCall(true)} className="px-2 py-1 rounded-lg bg-red-500/15 text-red-500 text-xs font-medium hover:bg-red-500/25" title="Leave (others stay)">
+              Leave
             </button>
+            {isHostRef.current && (
+              <button type="button" onClick={endCallForEveryone} className="px-2 py-1 rounded-lg border border-red-500/40 text-red-500 text-xs hover:bg-red-500/10" title="End for everyone">
+                End all
+              </button>
+            )}
           </>
         )}
       </div>
@@ -731,10 +844,23 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
 
       {error && <p className="mt-2 text-xs text-[var(--hq-danger)]">{error}</p>}
 
-      {(status === "live" || status === "connecting") && (
+      {inCall && (
         <div className="mt-3 grid grid-cols-2 gap-2">
           <video ref={localVideoRef} autoPlay muted playsInline className="w-full aspect-video rounded-lg bg-black/40 object-cover" />
-          <video ref={remoteVideoRef} autoPlay playsInline className="w-full aspect-video rounded-lg bg-black/40 object-cover" />
+          {remoteMedias[0] ? (
+            <video
+              autoPlay
+              playsInline
+              className="w-full aspect-video rounded-lg bg-black/40 object-cover"
+              ref={(el) => {
+                if (el && remoteMedias[0]) el.srcObject = remoteMedias[0].stream;
+              }}
+            />
+          ) : (
+            <div className="w-full aspect-video rounded-lg bg-black/40 flex items-center justify-center text-xs text-white/50">
+              Waiting for others…
+            </div>
+          )}
         </div>
       )}
     </div>
