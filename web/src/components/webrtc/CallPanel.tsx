@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Mic,
   MicOff,
@@ -258,6 +259,20 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   useEffect(() => {
     roomIdRef.current = roomId;
   }, [roomId]);
+
+  // Escape the root layout stacking context and hide the app header while in call/sidebar mode
+  const inCallOverlay = (status === "live" || status === "connecting") && (viewMode === "call" || viewMode === "sidebar");
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (inCallOverlay) {
+      document.body.classList.add("call-mode-active");
+    } else {
+      document.body.classList.remove("call-mode-active");
+    }
+    return () => {
+      document.body.classList.remove("call-mode-active");
+    };
+  }, [inCallOverlay]);
 
   const stopRingtone = useCallback(() => {
     ringtoneRef.current?.stop();
@@ -1267,10 +1282,11 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     );
   }
 
-  // Fullscreen call / sidebar mode — covers project header; browser chrome via Fullscreen API
+  // Fullscreen call / sidebar mode — portaled to body so it sits above the app header
+  // (root layout uses relative z-[1], which otherwise traps fixed stacking)
   if (inCall && (viewMode === "call" || viewMode === "sidebar")) {
-    return (
-      <div className="fixed inset-0 bg-[var(--hq-bg)] flex flex-col">
+    const overlay = (
+      <div className="call-mode-overlay fixed inset-0 z-[9999] bg-[var(--hq-bg)] flex flex-col">
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
         <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-[var(--hq-border)] bg-[var(--hq-bg)]/95 backdrop-blur">
           <Toolbar dense />
@@ -1424,6 +1440,11 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
         )}
       </div>
     );
+
+    if (typeof document !== "undefined") {
+      return createPortal(overlay, document.body);
+    }
+    return overlay;
   }
 
   return (

@@ -405,6 +405,22 @@ header.sticky {
   z-index: 40;
 }
 
+/* Call mode: hide the main app header so the call toolbar is the only top chrome.
+   CallPanel portals its overlay to document.body (outside the layout stacking context). */
+body.call-mode-active header.sticky {
+  visibility: hidden;
+  pointer-events: none;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  border: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+body.call-mode-active .call-mode-overlay {
+  z-index: 9999 !important;
+}
+
 .editor-shell {
   /* no outer box — flows like a document */
   background: transparent;
@@ -598,12 +614,6 @@ html[data-theme] header {
   min-height: 100%;
   box-sizing: border-box;
   padding: 1rem 4vw 5rem;
-}
-
-.z100 {
-  z-index: 100;
-  position: sticky;
-  top: 100;
 }
 
 
