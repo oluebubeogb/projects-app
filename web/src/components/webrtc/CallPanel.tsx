@@ -29,13 +29,14 @@ const RINGTONE_LABELS: Record<RingtoneId, string> = {
   soft: "Soft wave",
 };
 
-/** Generate short pleasant ringtone loops with Web Audio (no external assets). */
+const RING_TIMEOUT_MS = 60_000;
+
 function createRingtonePlayer(id: RingtoneId) {
   let ctx: AudioContext | null = null;
   let interval: ReturnType<typeof setInterval> | null = null;
   let stopped = false;
 
-  function tone(freqs: number[], duration: number, gap: number) {
+  function tone(freqs: number[], duration: number) {
     if (!ctx || stopped) return;
     const now = ctx.currentTime;
     freqs.forEach((f, i) => {
@@ -44,7 +45,7 @@ function createRingtonePlayer(id: RingtoneId) {
       o.type = id === "pulse" ? "triangle" : "sine";
       o.frequency.value = f;
       g.gain.setValueAtTime(0.0001, now + i * 0.05);
-      g.gain.exponentialRampToValueAtTime(0.12, now + i * 0.05 + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.1, now + i * 0.05 + 0.03);
       g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
       o.connect(g);
       g.connect(ctx!.destination);
@@ -55,17 +56,19 @@ function createRingtonePlayer(id: RingtoneId) {
 
   function playOnce() {
     if (stopped) return;
-    if (id === "chime") tone([880, 1174, 1480], 0.45, 0);
-    else if (id === "pulse") tone([523, 659], 0.28, 0);
-    else tone([392, 494, 587], 0.55, 0);
+    if (id === "chime") tone([880, 1174, 1480], 0.45);
+    else if (id === "pulse") tone([523, 659], 0.28);
+    else tone([392, 494, 587], 0.55);
   }
 
   return {
     start() {
       stopped = false;
-      ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      playOnce();
-      interval = setInterval(playOnce, id === "pulse" ? 900 : 1600);
+      try {
+        ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        playOnce();
+        interval = setInterval(playOnce, id === "pulse" ? 900 : 1600);
+      } catch {}
     },
     stop() {
       stopped = true;
@@ -104,22 +107,46 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   const [camOn, setCamOn] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [myId, setMyId] = useState<string | null>(null);
   const [ringtone, setRingtone] = useState<RingtoneId>(() => {
     if (typeof window === "undefined") return "chime";
     return (localStorage.getItem("call-ringtone") as RingtoneId) || "chime";
   });
   const [showRingtonePicker, setShowRingtonePicker] = useState(false);
+  const [ringSecondsLeft, setRingSecondsLeft] = useState(60);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const roomPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ringTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sinceRef = useRef(0);
   const isHostRef = useRef(false);
   const ringtoneRef = useRef<ReturnType<typeof createRingtonePlayer> | null>(null);
   const roomIdRef = useRef<string | null>(null);
+  const statusRef = useRef(status);
+  const handledRoomsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  const stopRingtone = useCallback(() => {
+    ringtoneRef.current?.stop();
+    ringtoneRef.current = null;
+    if (ringTimeoutRef.current) {
+      clearTimeout(ringTimeoutRef.current);
+      ringTimeoutRef.current = null;
+    }
+    if (ringTickRef.current) {
+      clearInterval(ringTickRef.current);
+      ringTickRef.current = null;
+    }
+  }, []);
 
   const cleanup = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -130,9 +157,9 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     localStreamRef.current = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-    ringtoneRef.current?.stop();
-    ringtoneRef.current = null;
-  }, []);
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+    stopRingtone();
+  }, [stopRingtone]);
 
   useEffect(() => () => {
     cleanup();
@@ -143,46 +170,13 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     roomIdRef.current = roomId;
   }, [roomId]);
 
-  // Poll for incoming calls on this context
-  useEffect(() => {
-    if (!contextId) return;
-    const check = async () => {
-      try {
-        const res = await fetch(`/api/calls?contextId=${encodeURIComponent(contextId)}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        const rooms = (data.rooms || []) as { id: string; hostId: string; status: string }[];
-        const open = rooms.find((r) => r.status === "open");
-        if (open && !roomIdRef.current && status === "idle") {
-          // Someone started a room — treat as incoming if we are not host
-          // We don't know session user id here easily; show incoming for any open room we didn't create
-          if (!isHostRef.current) {
-            setIncoming({ id: open.id, hostId: open.hostId });
-            setStatus("ringing");
-            if (!ringtoneRef.current) {
-              ringtoneRef.current = createRingtonePlayer(ringtone);
-              ringtoneRef.current.start();
-            }
-          }
-        } else if (!open && status === "ringing") {
-          setIncoming(null);
-          setStatus("idle");
-          ringtoneRef.current?.stop();
-          ringtoneRef.current = null;
-        }
-      } catch {}
-    };
-    check();
-    roomPollRef.current = setInterval(check, 2500);
-    return () => {
-      if (roomPollRef.current) clearInterval(roomPollRef.current);
-    };
-  }, [contextId, ringtone, status]);
-
   async function ensurePc() {
     if (pcRef.current) return pcRef.current;
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+      ],
     });
     pc.onicecandidate = (e) => {
       if (e.candidate && roomIdRef.current) {
@@ -194,8 +188,21 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
       }
     };
     pc.ontrack = (e) => {
+      const stream = e.streams[0];
+      if (!stream) return;
+      // Attach audio
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = stream;
+        remoteAudioRef.current.play().catch(() => {});
+      }
+      // Attach video if present
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = e.streams[0];
+        remoteVideoRef.current.srcObject = stream;
+      }
+    };
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+        // soft recovery — keep UI, user can end
       }
     };
     pcRef.current = pc;
@@ -204,7 +211,11 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
 
   async function getLocalStream(video: boolean) {
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
       video: video ? { width: 640, height: 480 } : false,
     });
     localStreamRef.current = stream;
@@ -214,6 +225,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
 
   function startPolling(rid: string) {
     if (pollRef.current) clearInterval(pollRef.current);
+    sinceRef.current = Date.now() - 2000;
     pollRef.current = setInterval(async () => {
       try {
         const res = await fetch(`/api/calls/${rid}/signal?since=${sinceRef.current}`);
@@ -224,33 +236,125 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
           await handleSignal(s);
         }
       } catch {}
-    }, 1200);
+    }, 800);
   }
 
   async function handleSignal(s: { from: string; type: string; payload: unknown }) {
     const pc = await ensurePc();
-    if (s.type === "offer" && !isHostRef.current) {
-      await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      await fetch(`/api/calls/${roomIdRef.current}/signal`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "answer", payload: answer }),
-      });
-      setStatus("live");
-      ringtoneRef.current?.stop();
-    } else if (s.type === "answer" && isHostRef.current) {
-      await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
-      setStatus("live");
-    } else if (s.type === "ice") {
-      try {
-        await pc.addIceCandidate(s.payload as RTCIceCandidateInit);
-      } catch {}
-    } else if (s.type === "hangup") {
-      endCall(false);
+    try {
+      if (s.type === "offer" && !isHostRef.current) {
+        await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
+        // ensure local tracks are on the pc before answering
+        if (localStreamRef.current) {
+          for (const track of localStreamRef.current.getTracks()) {
+            const already = pc.getSenders().some((snd) => snd.track?.id === track.id);
+            if (!already) pc.addTrack(track, localStreamRef.current);
+          }
+        }
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await fetch(`/api/calls/${roomIdRef.current}/signal`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "answer", payload: answer }),
+        });
+        setStatus("live");
+        stopRingtone();
+      } else if (s.type === "answer" && isHostRef.current) {
+        await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
+        setStatus("live");
+      } else if (s.type === "ice") {
+        try {
+          await pc.addIceCandidate(s.payload as RTCIceCandidateInit);
+        } catch {}
+      } else if (s.type === "renegotiate-offer") {
+        await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await fetch(`/api/calls/${roomIdRef.current}/signal`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "renegotiate-answer", payload: answer }),
+        });
+      } else if (s.type === "renegotiate-answer") {
+        await pc.setRemoteDescription(s.payload as RTCSessionDescriptionInit);
+      } else if (s.type === "hangup") {
+        endCall(false);
+      }
+    } catch (err) {
+      console.warn("[call signal]", err);
     }
   }
+
+  function beginRingTimeout(roomIdToExpire: string) {
+    stopRingtone();
+    setRingSecondsLeft(60);
+    ringtoneRef.current = createRingtonePlayer(ringtone);
+    ringtoneRef.current.start();
+    ringTickRef.current = setInterval(() => {
+      setRingSecondsLeft((s) => Math.max(0, s - 1));
+    }, 1000);
+    ringTimeoutRef.current = setTimeout(() => {
+      // unanswered — stop ring, mark handled, close room if we are host
+      stopRingtone();
+      handledRoomsRef.current.add(roomIdToExpire);
+      setIncoming(null);
+      if (statusRef.current === "ringing") {
+        setStatus("idle");
+      }
+      // tell server to close if host still owns it
+      fetch(`/api/calls?id=${encodeURIComponent(roomIdToExpire)}`, { method: "DELETE" }).catch(() => {});
+      if (roomIdRef.current === roomIdToExpire) {
+        endCall(true);
+      }
+    }, RING_TIMEOUT_MS);
+  }
+
+  // Poll for incoming calls — only ring for rooms NOT hosted by me, not already handled, and fresh
+  useEffect(() => {
+    if (!contextId) return;
+
+    const check = async () => {
+      try {
+        const res = await fetch(`/api/calls?contextId=${encodeURIComponent(contextId)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.me) setMyId(data.me);
+        const me = data.me as string | null;
+        const rooms = (data.rooms || []) as {
+          id: string;
+          hostId: string;
+          status: string;
+          createdAt: number;
+        }[];
+
+        const open = rooms.find(
+          (r) =>
+            r.status === "open" &&
+            r.hostId !== me &&
+            !handledRoomsRef.current.has(r.id)
+        );
+
+        if (open && !roomIdRef.current && statusRef.current === "idle") {
+          setIncoming({ id: open.id, hostId: open.hostId });
+          setStatus("ringing");
+          beginRingTimeout(open.id);
+        } else if (!open && statusRef.current === "ringing" && !roomIdRef.current) {
+          // room vanished / expired
+          stopRingtone();
+          setIncoming(null);
+          setStatus("idle");
+        }
+      } catch {}
+    };
+
+    check();
+    roomPollRef.current = setInterval(check, 2000);
+    return () => {
+      if (roomPollRef.current) clearInterval(roomPollRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contextId, ringtone]);
 
   async function startCall() {
     if (!contextId) return;
@@ -267,10 +371,13 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
       if (!res.ok) throw new Error(data.error || "Failed to create room");
       setRoomId(data.id);
       roomIdRef.current = data.id;
+      handledRoomsRef.current.add(data.id);
+
       const stream = await getLocalStream(false);
       const pc = await ensurePc();
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-      const offer = await pc.createOffer();
+
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
       await pc.setLocalDescription(offer);
       await fetch(`/api/calls/${data.id}/signal`, {
         method: "POST",
@@ -278,9 +385,12 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
         body: JSON.stringify({ type: "offer", payload: offer }),
       });
       startPolling(data.id);
+      // Host also gets a ring timeout — if no one answers in 60s, hang up
+      beginRingTimeout(data.id);
       setStatus("live");
-    } catch (e: any) {
-      setError(e.message || "Could not start call");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Could not start call";
+      setError(msg);
       setStatus("error");
       cleanup();
     }
@@ -288,12 +398,12 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
 
   async function acceptIncoming() {
     if (!incoming) return;
-    ringtoneRef.current?.stop();
-    ringtoneRef.current = null;
+    stopRingtone();
     setStatus("connecting");
     isHostRef.current = false;
     setRoomId(incoming.id);
     roomIdRef.current = incoming.id;
+    handledRoomsRef.current.add(incoming.id);
     try {
       const stream = await getLocalStream(false);
       const pc = await ensurePc();
@@ -301,16 +411,24 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
       startPolling(incoming.id);
       setIncoming(null);
       setStatus("live");
-    } catch (e: any) {
-      setError(e.message || "Could not join");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Could not join";
+      setError(msg);
       setStatus("error");
       cleanup();
     }
   }
 
   function declineIncoming() {
-    ringtoneRef.current?.stop();
-    ringtoneRef.current = null;
+    if (incoming) {
+      handledRoomsRef.current.add(incoming.id);
+      fetch(`/api/calls/${incoming.id}/signal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "hangup", payload: {} }),
+      }).catch(() => {});
+    }
+    stopRingtone();
     setIncoming(null);
     setStatus("idle");
   }
@@ -322,6 +440,7 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "hangup", payload: {} }),
       }).catch(() => {});
+      fetch(`/api/calls?id=${encodeURIComponent(roomIdRef.current)}`, { method: "DELETE" }).catch(() => {});
     }
     cleanup();
     setRoomId(null);
@@ -343,45 +462,89 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   }
 
   async function toggleCam() {
-    if (!pcRef.current) return;
+    const pc = pcRef.current;
+    if (!pc || !localStreamRef.current) return;
+
     if (camOn) {
-      localStreamRef.current?.getVideoTracks().forEach((t) => {
+      localStreamRef.current.getVideoTracks().forEach((t) => {
         t.stop();
         localStreamRef.current?.removeTrack(t);
+        const sender = pc.getSenders().find((s) => s.track?.id === t.id);
+        if (sender) pc.removeTrack(sender);
       });
       setCamOn(false);
+      await renegotiate();
       return;
     }
+
     try {
-      const vs = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+      const vs = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480 },
+      });
       const track = vs.getVideoTracks()[0];
-      localStreamRef.current?.addTrack(track);
-      pcRef.current.addTrack(track, localStreamRef.current!);
+      localStreamRef.current.addTrack(track);
+      pc.addTrack(track, localStreamRef.current);
       if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
       setCamOn(true);
+      await renegotiate();
     } catch {
       setError("Camera unavailable");
     }
   }
 
+  async function renegotiate() {
+    const pc = pcRef.current;
+    if (!pc || !roomIdRef.current) return;
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await fetch(`/api/calls/${roomIdRef.current}/signal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "renegotiate-offer", payload: offer }),
+      });
+    } catch (e) {
+      console.warn("[renegotiate]", e);
+    }
+  }
+
   async function toggleShare() {
+    const pc = pcRef.current;
+    if (!pc || !localStreamRef.current) return;
+
     if (sharing) {
-      localStreamRef.current?.getVideoTracks().forEach((t) => {
-        if (t.label.toLowerCase().includes("screen") || t.getSettings().displaySurface) {
+      localStreamRef.current.getVideoTracks().forEach((t) => {
+        const settings = t.getSettings() as { displaySurface?: string };
+        if (settings.displaySurface || t.label.toLowerCase().includes("screen")) {
           t.stop();
           localStreamRef.current?.removeTrack(t);
+          const sender = pc.getSenders().find((s) => s.track?.id === t.id);
+          if (sender) pc.removeTrack(sender);
         }
       });
       setSharing(false);
+      await renegotiate();
       return;
     }
+
     try {
-      const ds = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const ds = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false,
+      });
       const track = ds.getVideoTracks()[0];
-      track.onended = () => setSharing(false);
-      localStreamRef.current?.addTrack(track);
-      pcRef.current?.addTrack(track, localStreamRef.current!);
+      track.onended = () => {
+        setSharing(false);
+        const sender = pc.getSenders().find((s) => s.track?.id === track.id);
+        if (sender) pc.removeTrack(sender);
+        localStreamRef.current?.removeTrack(track);
+        renegotiate();
+      };
+      localStreamRef.current.addTrack(track);
+      pc.addTrack(track, localStreamRef.current);
+      if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
       setSharing(true);
+      await renegotiate();
     } catch {
       /* user cancelled */
     }
@@ -391,22 +554,22 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
     setRingtone(id);
     localStorage.setItem("call-ringtone", id);
     setShowRingtonePicker(false);
-    // preview
     const p = createRingtonePlayer(id);
     p.start();
     setTimeout(() => p.stop(), 1800);
   }
 
-  // ——— Compact header button ———
+  // ——— Compact ———
   if (compact) {
     return (
       <div className={cn("relative inline-flex", className)}>
+        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
         {status === "ringing" ? (
           <button
             type="button"
             onClick={acceptIncoming}
             className="p-2 rounded-lg bg-emerald-500/15 text-emerald-500 animate-pulse"
-            title="Incoming call — click to answer"
+            title={`Incoming call (${ringSecondsLeft}s)`}
           >
             <PhoneIncoming size={18} />
           </button>
@@ -436,15 +599,18 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   // ——— Full panel ———
   return (
     <div className={cn("rounded-xl border border-[var(--hq-border)] bg-[var(--hq-bg)]/50 p-3", className)}>
-      {/* Incoming call banner */}
+      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+
       {status === "ringing" && incoming && (
-        <div className="mb-3 flex items-center gap-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-3 animate-pulse">
-          <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-500">
+        <div className="mb-3 flex items-center gap-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-3">
+          <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-500 animate-pulse">
             <PhoneIncoming size={20} />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">Incoming call</p>
-            <p className="text-xs text-[var(--hq-muted)]">Someone is calling in this chat</p>
+            <p className="text-xs text-[var(--hq-muted)]">
+              Rings for {ringSecondsLeft}s then stops if unanswered
+            </p>
           </div>
           <button
             type="button"
@@ -494,7 +660,11 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
                 status === "ringing" && "bg-emerald-500/15 text-emerald-600"
               )}
             >
-              {status === "live" ? "In call" : status === "connecting" ? "Connecting…" : "Ringing…"}
+              {status === "live"
+                ? "In call"
+                : status === "connecting"
+                ? "Connecting…"
+                : `Ringing… ${ringSecondsLeft}s`}
             </span>
             <button type="button" onClick={toggleMute} className="p-1.5 rounded-lg hover:bg-[var(--hq-hover)] text-[var(--hq-muted)]" title={muted ? "Unmute" : "Mute"}>
               {muted ? <MicOff size={16} /> : <Mic size={16} />}
@@ -544,5 +714,4 @@ export function CallPanel({ kind = "dm", contextId, className, compact = false }
   );
 }
 
-/** Soft notification sound for new forum posts / messages (export for reuse). */
 export { playNotificationTone };
