@@ -1,0 +1,50 @@
+FROM node:22-bookworm-slim AS builder
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY web/package.json web/package-lock.json* ./
+RUN npm ci --prefer-offline --no-audit || npm install --no-audit
+
+COPY web/ ./
+RUN mkdir -p public
+
+ARG NEXT_PUBLIC_HOCUSPOCUS_URL=
+ARG NEXT_PUBLIC_APP_URL=
+
+ENV NEXT_PUBLIC_HOCUSPOCUS_URL=$NEXT_PUBLIC_HOCUSPOCUS_URL
+ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+
+RUN npm run build
+
+FROM node:22-bookworm-slim AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3010
+ENV HOSTNAME=0.0.0.0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+
+# pdfkit font metrics
+COPY --from=builder /app/node_modules/pdfkit/js/data ./node_modules/pdfkit/js/data
+
+COPY --from=builder /app/package.json ./package.json
+RUN npm install --omit=dev pg sharp && rm -f package.json package-lock.json
+
+RUN mkdir -p /data
+ENV DATA_DIR=/data
+
+EXPOSE 3010
+CMD ["node", "server.js"]
