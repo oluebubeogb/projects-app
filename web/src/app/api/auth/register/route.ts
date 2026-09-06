@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { registerUser, createSession } from "@/lib/auth";
+import { registerUser } from "@/lib/auth";
 import { z } from "zod";
 
 const schema = z.object({
@@ -17,13 +17,13 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const data = schema.parse(body);
+    // registerUser → Accounts signup + local user upsert + session cookie
     const user = await registerUser(
       data.email,
       data.name,
       data.password,
       data.username
     );
-    await createSession(user.id);
     return NextResponse.json({ user });
   } catch (err) {
     const message =

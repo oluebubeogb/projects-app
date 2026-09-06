@@ -50,6 +50,8 @@ export const users = pgTable("users", {
   role: text("role", { enum: ["user", "admin"] })
     .notNull()
     .default("user"),
+  /** Link to central Collab Accounts user id */
+  accountsId: text("accounts_id").unique(),
   createdAt: integer("created_at")
     .notNull()
     .default(sql`extract(epoch from now())::int`),

@@ -1,16 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
-import { eq, and, ne } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
+import {
+  getSessionUser,
+  getAccessTokenFromCookies,
+  updateAccountsProfile,
+  ensureLocalUserFromAccounts,
+  USE_ACCOUNTS,
+} from "@/lib/auth";
 
-export async function GET() {
-  const session = await getSessionUser();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const username = searchParams.get("username");
+  if (!username) {
+    const session = await getSessionUser();
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const rows = await db.select().from(users).where(eq(users.id, session.id)).limit(1);
+    const u = rows[0];
+    if (!u) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({
+      user: {
+        id: u.id,
+        name: u.name,
+        username: u.username,
+        email: u.email,
+        avatarColor: u.avatarColor,
+        avatarUrl: u.avatarUrl ?? null,
+        bio: u.bio ?? "",
+        organization: (u as { organization?: string }).organization ?? "",
+        location: (u as { location?: string }).location ?? "",
+        phone: (u as { phone?: string }).phone ?? "",
+        dateOfBirth: (u as { dateOfBirth?: string }).dateOfBirth ?? "",
+        address: (u as { address?: string }).address ?? "",
+      },
+    });
   }
 
-  const rows = await db.select().from(users).where(eq(users.id, session.id)).limit(1);
+  const rows = await db.select().from(users).where(eq(users.username, username)).limit(1);
   const u = rows[0];
   if (!u) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -82,6 +111,32 @@ export async function PATCH(req: NextRequest) {
     .limit(1);
   if (existing[0]) {
     return NextResponse.json({ error: "Username already taken" }, { status: 409 });
+  }
+
+  // Write core profile to Accounts when linked
+  if (USE_ACCOUNTS) {
+    const token = await getAccessTokenFromCookies();
+    if (token) {
+      try {
+        const profile = await updateAccountsProfile(token, {
+          display_name: name,
+          username,
+          bio,
+          school: organization,
+          country: location,
+          phone,
+          date_of_birth: dateOfBirth,
+          avatar_color: avatarColor,
+          avatar_url: avatarUrl,
+        });
+        if (profile) {
+          await ensureLocalUserFromAccounts(profile);
+        }
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Accounts update failed";
+        return NextResponse.json({ error: message }, { status: 400 });
+      }
+    }
   }
 
   await db
