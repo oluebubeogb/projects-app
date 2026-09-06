@@ -152,7 +152,7 @@ export async function PATCH(req: NextRequest) {
       phone,
       dateOfBirth,
       address,
-    } as Record<string, unknown>)
+    })
     .where(eq(users.id, session.id));
 
   return NextResponse.json({ ok: true, username });

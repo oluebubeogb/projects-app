@@ -191,41 +191,43 @@ export async function ensureLocalUserFromAccounts(profile: AccountsUser): Promis
     .select()
     .from(users)
     .where(eq(users.accountsId, accountsId))
-    .limit(1)
-    .catch(() => []);
+    .limit(1);
 
-  let row = byAccounts[0];
+  let row = byAccounts[0] as (typeof byAccounts)[0] | undefined;
   if (!row) {
     const byEmail = await db.select().from(users).where(eq(users.email, email)).limit(1);
     row = byEmail[0];
   }
 
   if (row) {
+    const nextUsername = row.username || username;
+    const nextAvatarColor = profile.avatar_color || row.avatarColor;
+    const nextAvatarUrl = profile.avatar_url ?? row.avatarUrl ?? null;
     await db
       .update(users)
       .set({
         accountsId,
         name,
         email,
-        username: row.username || username,
-        avatarColor: profile.avatar_color || row.avatarColor,
-        avatarUrl: profile.avatar_url ?? row.avatarUrl,
+        username: nextUsername,
+        avatarColor: nextAvatarColor,
+        avatarUrl: nextAvatarUrl,
         bio: profile.bio ?? row.bio ?? "",
         organization: profile.school ?? row.organization ?? "",
         location: profile.country ?? row.location ?? "",
         phone: profile.phone ?? row.phone ?? "",
         dateOfBirth: profile.date_of_birth ?? row.dateOfBirth ?? "",
-      } as Record<string, unknown>)
+      })
       .where(eq(users.id, row.id));
 
     return {
       id: row.id,
       email,
       name,
-      username: row.username || username,
-      avatarColor: profile.avatar_color || row.avatarColor,
-      avatarUrl: profile.avatar_url ?? row.avatarUrl ?? null,
-      role: (row as { role?: string }).role || "user",
+      username: nextUsername,
+      avatarColor: nextAvatarColor,
+      avatarUrl: nextAvatarUrl,
+      role: row.role || "user",
       accountsId,
     };
   }
@@ -239,29 +241,31 @@ export async function ensureLocalUserFromAccounts(profile: AccountsUser): Promis
   }
 
   const id = randomUUID();
+  const avatarColor = profile.avatar_color || randomColor();
+  const avatarUrl = profile.avatar_url || null;
   await db.insert(users).values({
     id,
     email,
     name,
     username: candidate,
     passwordHash: "", // auth is via Accounts
-    avatarColor: profile.avatar_color || randomColor(),
-    avatarUrl: profile.avatar_url || null,
+    avatarColor,
+    avatarUrl,
     bio: profile.bio || "",
     organization: profile.school || "",
     location: profile.country || "",
     phone: profile.phone || "",
     dateOfBirth: profile.date_of_birth || "",
     accountsId,
-  } as Record<string, unknown>);
+  });
 
   return {
     id,
     email,
     name,
     username: candidate,
-    avatarColor: profile.avatar_color || randomColor(),
-    avatarUrl: profile.avatar_url ?? null,
+    avatarColor,
+    avatarUrl,
     role: "user",
     accountsId,
   };
