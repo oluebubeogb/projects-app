@@ -769,3 +769,9 @@ html[data-theme] header {
 @media (prefers-reduced-motion: reduce) {
   .landing-primary-btn, .landing-secondary-btn, .landing-project-card, .landing-project-arrow { transition: none; }
 }
+
+/* Workspace-at-a-glance: swap image by theme */
+.landing-glance-light { display: block; }
+.landing-glance-dark { display: none; }
+[data-theme="dark"] .landing-glance-light { display: none; }
+[data-theme="dark"] .landing-glance-dark { display: block; }

@@ -142,26 +142,34 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Visual trio */}
+      {/* Workspace at a glance — light / dark */}
       <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
         <div className="mb-10 max-w-2xl">
           <div className="landing-kicker"><Sparkles size={15} /> Built for clarity</div>
           <h2 className="landing-section-title">See the workspace at a glance</h2>
         </div>
-        <div className="grid gap-5 md:grid-cols-3">
-          {[
-            { src: "/landing/collab-live.png", alt: "Live collaborative editing", caption: "Write together in real time" },
-            { src: "/landing/commit-trail.png", alt: "Transparent commit history", caption: "Every change leaves a trail" },
-            { src: "/landing/forums-join.png", alt: "Public forums and discussions", caption: "Discuss in public forums" },
-          ].map((item) => (
-            <figure key={item.src} className="overflow-hidden rounded-2xl border border-[var(--hq-border)] bg-[var(--hq-surface)] shadow-[var(--hq-shadow)]">
-              <div className="relative aspect-[5/3] bg-[var(--hq-bg)]">
-                <Image src={item.src} alt={item.alt} fill className="object-cover" sizes="(max-width:768px) 100vw, 33vw" />
-              </div>
-              <figcaption className="px-4 py-3 text-sm font-medium text-[var(--hq-text)]">{item.caption}</figcaption>
-            </figure>
-          ))}
-        </div>
+        <figure className="overflow-hidden rounded-2xl border border-[var(--hq-border)] bg-[var(--hq-surface)] shadow-[var(--hq-shadow-md)]">
+          <div className="relative aspect-[16/9] w-full bg-[var(--hq-bg)]">
+            {/* Light mode image — replace web/public/landing/workspace-at-a-glance-light.png */}
+            <Image
+              src="/landing/workspace-at-a-glance-light.png"
+              alt="Projects workspace overview"
+              fill
+              className="object-cover landing-glance-light"
+              sizes="(max-width:1280px) 100vw, 1200px"
+              priority
+            />
+            {/* Dark mode image — replace web/public/landing/workspace-at-a-glance-dark.png */}
+            <Image
+              src="/landing/workspace-at-a-glance-dark.png"
+              alt="Projects workspace overview"
+              fill
+              className="object-cover landing-glance-dark"
+              sizes="(max-width:1280px) 100vw, 1200px"
+              priority
+            />
+          </div>
+        </figure>
       </section>
 
       {/* Value proposition */}
