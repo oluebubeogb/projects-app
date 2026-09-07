@@ -14,6 +14,7 @@ import { AcceptInviteButton } from "@/components/project/AcceptInviteButton";
 import { ShareButton } from "@/components/project/ShareButton";
 import { Contributors } from "@/components/project/Contributors";
 import { CollapsibleDescription } from "@/components/project/CollapsibleDescription";
+import { ProjectSettingsEdit } from "@/components/project/ProjectSettingsEdit";
 import { Pencil } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -223,6 +224,15 @@ export default async function ProjectReadOnlyPage({
                 </span>
               ))}
             </div>
+            {canEdit && (
+              <ProjectSettingsEdit
+                projectId={project.id}
+                title={project.title}
+                description={project.description || ""}
+                visibility={(project.visibility as "public" | "private") || "public"}
+                canEdit={!!membership && ["owner", "admin"].includes(membership.role)}
+              />
+            )}
             {canEdit && (
               <Link
                 href={editHref}

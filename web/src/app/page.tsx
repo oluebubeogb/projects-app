@@ -1,7 +1,9 @@
 import Link from "next/link";
+import Image from "next/image";
 import { db } from "@/lib/db";
-import { projects } from "@/lib/db/schema";
+import { projects, forums } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
+import { getSessionUser } from "@/lib/auth";
 import {
   ArrowRight,
   Check,
@@ -19,12 +21,26 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
+  const user = await getSessionUser();
+
   const publicProjects = await db
     .select()
     .from(projects)
     .where(eq(projects.visibility, "public"))
     .orderBy(desc(projects.updatedAt))
     .limit(12);
+
+  const publicForums = await db
+    .select()
+    .from(forums)
+    .where(eq(forums.visibility, "public"))
+    .orderBy(desc(forums.updatedAt))
+    .limit(12);
+
+  const primaryHref = user ? "/dashboard/new" : "/register";
+  const primaryLabel = user ? "Create new project" : "Start building free";
+  const finalHref = user ? "/dashboard/new" : "/register";
+  const finalLabel = user ? "Create new project" : "Create your workspace";
 
   return (
     <div className="overflow-hidden">
@@ -46,8 +62,8 @@ export default async function HomePage() {
             Projects brings collaborative writing, transparent history, and focused team work into one beautiful workspace — built for research, teams, and universities.
           </p>
           <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-            <Link href="/register" className="landing-primary-btn">
-              Start building free <ArrowRight size={17} />
+            <Link href={primaryHref} className="landing-primary-btn">
+              {primaryLabel} <ArrowRight size={17} />
             </Link>
             <Link href="/search" className="landing-secondary-btn">
               Explore public projects
@@ -110,7 +126,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Feature strip */}
+      {/* Feature strip — Work live / Keep the trail / Control access */}
       <section className="border-y border-[var(--hq-border)] bg-[var(--hq-sidebar)]/70">
         <div className="mx-auto grid max-w-7xl gap-px px-4 sm:grid-cols-3 sm:px-6 lg:px-8">
           {[
@@ -122,6 +138,28 @@ export default async function HomePage() {
               <div className="landing-icon-box"><Icon size={18} /></div>
               <div><h3 className="text-sm font-semibold">{title}</h3><p className="mt-1 text-xs leading-5 text-[var(--hq-muted)]">{body}</p></div>
             </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Visual trio */}
+      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
+        <div className="mb-10 max-w-2xl">
+          <div className="landing-kicker"><Sparkles size={15} /> Built for clarity</div>
+          <h2 className="landing-section-title">See the workspace at a glance</h2>
+        </div>
+        <div className="grid gap-5 md:grid-cols-3">
+          {[
+            { src: "/landing/collab-live.png", alt: "Live collaborative editing", caption: "Write together in real time" },
+            { src: "/landing/commit-trail.png", alt: "Transparent commit history", caption: "Every change leaves a trail" },
+            { src: "/landing/forums-join.png", alt: "Public forums and discussions", caption: "Discuss in public forums" },
+          ].map((item) => (
+            <figure key={item.src} className="overflow-hidden rounded-2xl border border-[var(--hq-border)] bg-[var(--hq-surface)] shadow-[var(--hq-shadow)]">
+              <div className="relative aspect-[5/3] bg-[var(--hq-bg)]">
+                <Image src={item.src} alt={item.alt} fill className="object-cover" sizes="(max-width:768px) 100vw, 33vw" />
+              </div>
+              <figcaption className="px-4 py-3 text-sm font-medium text-[var(--hq-text)]">{item.caption}</figcaption>
+            </figure>
           ))}
         </div>
       </section>
@@ -142,28 +180,39 @@ export default async function HomePage() {
               [GitBranch, "Revision confidence", "Review commits instead of guessing what changed."],
             ].map(([Icon, title, body]) => {
               const FeatureIcon = Icon as typeof Globe2;
-              return <div key={title as string} className="landing-mini-card"><FeatureIcon size={16} /><div><div className="text-sm font-medium">{title as string}</div><div className="mt-1 text-xs leading-5 text-[var(--hq-muted)]">{body as string}</div></div></div>;
+              return (
+                <div key={title as string} className="landing-mini-card">
+                  <FeatureIcon size={16} />
+                  <div>
+                    <div className="text-sm font-medium">{title as string}</div>
+                    <div className="mt-1 text-xs leading-5 text-[var(--hq-muted)]">{body as string}</div>
+                  </div>
+                </div>
+              );
             })}
           </div>
         </div>
         <div className="landing-quote-card">
           <div className="landing-quote-mark">“</div>
-          <p className="relative text-xl font-medium leading-8 tracking-tight sm:text-2xl">
-            The best workspace is the one that gets out of the way and lets the work become the focus.
+          <p className="relative z-[1] text-lg font-medium leading-8 tracking-tight sm:text-xl">
+            We finally stopped chasing document versions. The project, the people, and the history live in one place — and everyone can see the trail.
           </p>
-          <div className="mt-8 flex items-center gap-3 border-t border-[var(--hq-border)] pt-5">
-            <div className="landing-quote-avatar">P</div>
-            <div><div className="text-sm font-semibold">Projects</div><div className="text-xs text-[var(--hq-muted)]">A CISTECH workspace</div></div>
+          <div className="relative z-[1] mt-8 flex items-center gap-3">
+            <div className="landing-quote-avatar">R</div>
+            <div>
+              <div className="text-sm font-semibold">Research lead</div>
+              <div className="text-xs text-[var(--hq-muted)]">University collaboration group</div>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Recent public */}
+      {/* Recent public projects */}
       {publicProjects.length > 0 && (
-        <section className="mx-auto max-w-7xl px-4 pb-20 sm:px-6 lg:px-8 lg:pb-28">
-          <div className="mb-7 flex items-end justify-between gap-4">
+        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
+          <div className="mb-8 flex items-end justify-between gap-4">
             <div>
-              <div className="landing-kicker"><Globe2 size={15} /> Explore the community</div>
+              <div className="landing-kicker"><Globe2 size={15} /> Discover</div>
               <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Recent public projects</h2>
             </div>
             <Link href="/search" className="hidden items-center gap-1.5 text-sm font-medium text-[var(--hq-accent)] hover:gap-2.5 sm:flex">View all <ArrowRight size={15} /></Link>
@@ -177,7 +226,37 @@ export default async function HomePage() {
                 </div>
                 <h3 className="line-clamp-1 text-base font-semibold tracking-tight group-hover:text-[var(--hq-accent)]">{p.title}</h3>
                 <p className="mt-2 line-clamp-3 text-sm leading-6 text-[var(--hq-muted)]">{p.description || "No description"}</p>
-                <div className="mt-5 flex items-center gap-2 text-[11px] text-[var(--hq-muted)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--hq-success)]" /> Public project</div>
+                <div className="mt-5 flex items-center gap-2 text-[11px] text-[var(--hq-muted)]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--hq-success)]" /> Public project
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Join a public forum — same grid as projects, ordered by last edit */}
+      {publicForums.length > 0 && (
+        <section className="mx-auto max-w-7xl px-4 pb-20 sm:px-6 lg:px-8">
+          <div className="mb-8 flex items-end justify-between gap-4">
+            <div>
+              <div className="landing-kicker"><MessageSquare size={15} /> Community</div>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Join a public forum</h2>
+            </div>
+            <Link href="/forums" className="hidden items-center gap-1.5 text-sm font-medium text-[var(--hq-accent)] hover:gap-2.5 sm:flex">View all <ArrowRight size={15} /></Link>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {publicForums.map((f, index) => (
+              <Link key={f.id} href={`/forums/${encodeURIComponent(f.id)}`} className="landing-project-card group">
+                <div className="mb-5 flex items-center justify-between">
+                  <span className="landing-project-number">{String(index + 1).padStart(2, "0")}</span>
+                  <span className="landing-project-arrow"><ArrowRight size={14} /></span>
+                </div>
+                <h3 className="line-clamp-1 text-base font-semibold tracking-tight group-hover:text-[var(--hq-accent)]">{f.title}</h3>
+                <p className="mt-2 line-clamp-3 text-sm leading-6 text-[var(--hq-muted)]">{f.description || "No description"}</p>
+                <div className="mt-5 flex items-center gap-2 text-[11px] text-[var(--hq-muted)]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--hq-accent)]" /> Public forum
+                </div>
               </Link>
             ))}
           </div>
@@ -191,8 +270,14 @@ export default async function HomePage() {
           <div className="relative">
             <div className="landing-eyebrow mx-auto mb-5 w-fit"><Sparkles size={14} /> Ready when you are</div>
             <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">Make the next project together.</h2>
-            <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-[var(--hq-muted)] sm:text-base">Create a workspace, invite your collaborators, and turn scattered ideas into work you can actually build on.</p>
-            <Link href="/register" className="landing-primary-btn mx-auto mt-8 w-fit">Create your workspace <ArrowRight size={17} /></Link>
+            <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-[var(--hq-muted)] sm:text-base">
+              {user
+                ? "Open a new workspace, invite collaborators, and keep writing with a clear trail."
+                : "Create a workspace, invite your collaborators, and turn scattered ideas into work you can actually build on."}
+            </p>
+            <Link href={finalHref} className="landing-primary-btn mx-auto mt-8 w-fit">
+              {finalLabel} <ArrowRight size={17} />
+            </Link>
           </div>
         </div>
       </section>
