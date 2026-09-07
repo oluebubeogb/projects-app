@@ -155,33 +155,9 @@ const Indent = Extension.create({
       },
     ];
   },
-  addCommands() {
-    return {
-      indent:
-        () =>
-        ({ commands, state }: { commands: any; state: any }) => {
-          const { $from } = state.selection;
-          const node = $from.parent;
-          if (!["paragraph", "heading"].includes(node.type.name)) return false;
-          const current = (node.attrs.indent as number) || 0;
-          if (current >= 8) return false;
-          return commands.updateAttributes(node.type.name, { indent: current + 1 });
-        },
-      outdent:
-        () =>
-        ({ commands, state }: { commands: any; state: any }) => {
-          const { $from } = state.selection;
-          const node = $from.parent;
-          if (!["paragraph", "heading"].includes(node.type.name)) return false;
-          const current = (node.attrs.indent as number) || 0;
-          if (current <= 0) return false;
-          return commands.updateAttributes(node.type.name, { indent: current - 1 });
-        },
-    };
-  },
 });
 
-/** Ordered list type: 1 | a | A | i | I */
+/** Ordered list type attribute: 1 | a | A | i | I */
 const OrderedListType = Extension.create({
   name: "orderedListType",
   addGlobalAttributes() {
@@ -200,15 +176,6 @@ const OrderedListType = Extension.create({
         },
       },
     ];
-  },
-  addCommands() {
-    return {
-      setOrderedListType:
-        (type: string) =>
-        ({ commands }: { commands: any }) => {
-          return commands.updateAttributes("orderedList", { type });
-        },
-    };
   },
 });
 
@@ -623,16 +590,26 @@ export function CollaborativeEditor({
           if (editor.can().sinkListItem("listItem")) {
             chain.sinkListItem("listItem").run();
           } else {
-            // @ts-expect-error custom command
-            chain.indent().run();
+            const node = editor.state.selection.$from.parent;
+            if (["paragraph", "heading"].includes(node.type.name)) {
+              const current = (node.attrs.indent as number) || 0;
+              if (current < 8) {
+                chain.updateAttributes(node.type.name, { indent: current + 1 }).run();
+              }
+            }
           }
           break;
         case "outdent":
           if (editor.can().liftListItem("listItem")) {
             chain.liftListItem("listItem").run();
           } else {
-            // @ts-expect-error custom command
-            chain.outdent().run();
+            const node = editor.state.selection.$from.parent;
+            if (["paragraph", "heading"].includes(node.type.name)) {
+              const current = (node.attrs.indent as number) || 0;
+              if (current > 0) {
+                chain.updateAttributes(node.type.name, { indent: current - 1 }).run();
+              }
+            }
           }
           break;
         case "orderedType": {
