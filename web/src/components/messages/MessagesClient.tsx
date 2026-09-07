@@ -107,9 +107,7 @@ export function MessagesClient({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
-  const stickToBottomRef = useRef(true);
   const lastMsgIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -172,7 +170,6 @@ export function MessagesClient({
   useEffect(() => {
     if (activeId) {
       loadMessages(activeId);
-      stickToBottomRef.current = true;
       const iv = setInterval(() => {
         loadMessages(activeId, true);
       }, 2200);
@@ -180,17 +177,12 @@ export function MessagesClient({
     }
   }, [activeId, loadMessages]);
 
-  // Only auto-scroll when the user is already near the bottom (or sent a message)
-  useEffect(() => {
-    if (!stickToBottomRef.current) return;
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  // Auto-scroll removed for better UX — user controls scroll position.
 
   async function send(body?: string, kind = "text", mediaPath?: string) {
     if (!activeId) return;
     const payloadBody = body ?? text.trim();
     if (!payloadBody && !mediaPath) return;
-    stickToBottomRef.current = true;
     setBusy(true);
     setErr(null);
     try {
@@ -292,7 +284,6 @@ export function MessagesClient({
     const file = new File([voicePreview.blob], `voice-${Date.now()}.webm`, { type: "audio/webm" });
     URL.revokeObjectURL(voicePreview.url);
     setVoicePreview(null);
-    stickToBottomRef.current = true;
     await uploadAndSend(file);
   }
 
@@ -535,12 +526,6 @@ export function MessagesClient({
               <div
                 ref={messagesScrollRef}
                 className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5"
-                onScroll={() => {
-                  const el = messagesScrollRef.current;
-                  if (!el) return;
-                  const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-                  stickToBottomRef.current = dist < 80;
-                }}
               >
                 {filteredMessages.map((m) => {
                   const mine = m.authorId === myId;
@@ -602,7 +587,6 @@ export function MessagesClient({
                     </div>
                   );
                 })}
-                <div ref={messagesEndRef} />
               </div>
             )}
 
@@ -656,8 +640,8 @@ export function MessagesClient({
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-end gap-1.5">
-                    <div className="flex items-center gap-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-0.5 shrink-0">
                       <button
                         type="button"
                         title="Stickers"
@@ -691,7 +675,7 @@ export function MessagesClient({
                         <Mic size={20} />
                       </button>
                     </div>
-                    <div className="flex-1 relative">
+                    <div className="flex-1 relative min-w-0">
                       <textarea
                         className="w-full resize-none hq-input min-h-[42px] max-h-28 py-2.5 pr-11 text-sm leading-snug"
                         placeholder="Message… (links auto-detected)"

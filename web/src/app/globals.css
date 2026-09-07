@@ -216,11 +216,61 @@ a {
   font-size: 0.92rem;
 }
 
-.ProseMirror ul,
-.ProseMirror ol {
-  padding-left: 1.5rem;
+.ProseMirror ul {
+  padding-left: 1.5rem !important;
   margin: 0 0 0.75em;
+  list-style-type: disc !important;
+  list-style-position: outside;
 }
+
+.ProseMirror ol {
+  padding-left: 1.5rem !important;
+  margin: 0 0 0.75em;
+  list-style-type: decimal !important;
+  list-style-position: outside;
+}
+
+.ProseMirror ol[type="a"] {
+  list-style-type: lower-alpha;
+}
+
+.ProseMirror ol[type="A"] {
+  list-style-type: upper-alpha;
+}
+
+.ProseMirror ol[type="i"] {
+  list-style-type: lower-roman;
+}
+
+.ProseMirror ol[type="I"] {
+  list-style-type: upper-roman;
+}
+
+.ProseMirror ul ul {
+  list-style-type: circle;
+}
+
+.ProseMirror ul ul ul {
+  list-style-type: square;
+}
+
+.ProseMirror li {
+  display: list-item;
+}
+
+.ProseMirror li p {
+  margin: 0;
+}
+
+/* Paragraph / block indent (margin-based) */
+.ProseMirror [data-indent="1"] { margin-left: 1.5rem; }
+.ProseMirror [data-indent="2"] { margin-left: 3rem; }
+.ProseMirror [data-indent="3"] { margin-left: 4.5rem; }
+.ProseMirror [data-indent="4"] { margin-left: 6rem; }
+.ProseMirror [data-indent="5"] { margin-left: 7.5rem; }
+.ProseMirror [data-indent="6"] { margin-left: 9rem; }
+.ProseMirror [data-indent="7"] { margin-left: 10.5rem; }
+.ProseMirror [data-indent="8"] { margin-left: 12rem; }
 
 .ProseMirror blockquote {
   border-left: 3px solid var(--hq-border);

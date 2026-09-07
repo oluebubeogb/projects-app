@@ -131,6 +131,87 @@ const FontSize = Extension.create({
   },
 });
 
+/** Indent level on paragraphs and headings (data-indent + CSS margin) */
+const Indent = Extension.create({
+  name: "indent",
+  addGlobalAttributes() {
+    return [
+      {
+        types: ["paragraph", "heading"],
+        attributes: {
+          indent: {
+            default: 0,
+            parseHTML: (element: HTMLElement) => {
+              const v = element.getAttribute("data-indent");
+              return v ? parseInt(v, 10) || 0 : 0;
+            },
+            renderHTML: (attributes: { indent?: number }) => {
+              const level = attributes.indent || 0;
+              if (!level) return {};
+              return { "data-indent": String(level) };
+            },
+          },
+        },
+      },
+    ];
+  },
+  addCommands() {
+    return {
+      indent:
+        () =>
+        ({ commands, state }: { commands: any; state: any }) => {
+          const { $from } = state.selection;
+          const node = $from.parent;
+          if (!["paragraph", "heading"].includes(node.type.name)) return false;
+          const current = (node.attrs.indent as number) || 0;
+          if (current >= 8) return false;
+          return commands.updateAttributes(node.type.name, { indent: current + 1 });
+        },
+      outdent:
+        () =>
+        ({ commands, state }: { commands: any; state: any }) => {
+          const { $from } = state.selection;
+          const node = $from.parent;
+          if (!["paragraph", "heading"].includes(node.type.name)) return false;
+          const current = (node.attrs.indent as number) || 0;
+          if (current <= 0) return false;
+          return commands.updateAttributes(node.type.name, { indent: current - 1 });
+        },
+    };
+  },
+});
+
+/** Ordered list type: 1 | a | A | i | I */
+const OrderedListType = Extension.create({
+  name: "orderedListType",
+  addGlobalAttributes() {
+    return [
+      {
+        types: ["orderedList"],
+        attributes: {
+          type: {
+            default: "1",
+            parseHTML: (element: HTMLElement) => element.getAttribute("type") || "1",
+            renderHTML: (attributes: { type?: string }) => {
+              if (!attributes.type || attributes.type === "1") return {};
+              return { type: attributes.type };
+            },
+          },
+        },
+      },
+    ];
+  },
+  addCommands() {
+    return {
+      setOrderedListType:
+        (type: string) =>
+        ({ commands }: { commands: any }) => {
+          return commands.updateAttributes("orderedList", { type });
+        },
+    };
+  },
+});
+
 export function CollaborativeEditor({
   projectId,
   token,
@@ -259,6 +340,8 @@ export function CollaborativeEditor({
       Underline,
       TextStyle,
       FontSize,
+      Indent,
+      OrderedListType,
       Color,
       Highlight.configure({ multicolor: true }),
       Table.configure({
@@ -537,11 +620,33 @@ export function CollaborativeEditor({
           chain.setParagraph().run();
           break;
         case "indent":
-          chain.sinkListItem("listItem").run();
+          if (editor.can().sinkListItem("listItem")) {
+            chain.sinkListItem("listItem").run();
+          } else {
+            // @ts-expect-error custom command
+            chain.indent().run();
+          }
           break;
         case "outdent":
-          chain.liftListItem("listItem").run();
+          if (editor.can().liftListItem("listItem")) {
+            chain.liftListItem("listItem").run();
+          } else {
+            // @ts-expect-error custom command
+            chain.outdent().run();
+          }
           break;
+        case "orderedType": {
+          const types = ["1", "a", "A", "i", "I"] as const;
+          const current = (editor.getAttributes("orderedList").type as string) || "1";
+          const idx = types.indexOf(current as (typeof types)[number]);
+          const next = types[(idx + 1) % types.length];
+          if (!editor.isActive("orderedList")) {
+            chain.toggleOrderedList().updateAttributes("orderedList", { type: next }).run();
+          } else {
+            chain.updateAttributes("orderedList", { type: next }).run();
+          }
+          break;
+        }
         case "infoBlock":
           chain
             .focus()
@@ -988,6 +1093,17 @@ export function CollaborativeEditor({
                     label="Numbered list"
                     active={isActive("orderedList")}
                   />
+                  <button
+                    type="button"
+                    title="Numbering style: 1 → a → A → i → I"
+                    onClick={() => run("orderedType")}
+                    className={cn(
+                      "px-2 h-8 rounded-lg text-xs font-semibold border border-[var(--hq-border)] hover:bg-[var(--hq-hover)] text-[var(--hq-text)] min-w-[2rem]",
+                      isActive("orderedList") && "bg-[var(--hq-hover)]"
+                    )}
+                  >
+                    {(editor?.getAttributes("orderedList")?.type as string) || "1"}
+                  </button>
                   <ToolbarBtn cmd="outdent" icon={IndentDecrease} label="Decrease indent" />
                   <ToolbarBtn cmd="indent" icon={IndentIncrease} label="Increase indent" />
                   <ToolbarBtn cmd="hr" icon={Minus} label="Horizontal rule" />
