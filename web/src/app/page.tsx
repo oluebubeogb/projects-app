@@ -142,8 +142,6 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {
-
       {/* Workspace at a glance — full composite image (title + cards in asset); theme swap */}
       <section className="relative mx-auto max-w-7xl px-0 py-12 sm:py-16 lg:py-20">
         <div className="landing-glance-wrap relative w-full overflow-hidden">
@@ -166,8 +164,8 @@ export default async function HomePage() {
             />
           </div>
           {/* Left / right edge fade into page background */}
-          <div className="landing-glance-fade landing-glance-fade-left" aria-hidden />
-          <div className="landing-glance-fade landing-glance-fade-right" aria-hidden />
+          <div className="landing-glance-fade landing-glance-fade-left" aria-hidden={true} />
+          <div className="landing-glance-fade landing-glance-fade-right" aria-hidden={true} />
         </div>
       </section>
 
