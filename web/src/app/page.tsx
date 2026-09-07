@@ -142,34 +142,33 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Workspace at a glance — light / dark */}
-      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
-        <div className="mb-10 max-w-2xl">
-          <div className="landing-kicker"><Sparkles size={15} /> Built for clarity</div>
-          <h2 className="landing-section-title">See the workspace at a glance</h2>
-        </div>
-        <figure className="overflow-hidden rounded-2xl border border-[var(--hq-border)] bg-[var(--hq-surface)] shadow-[var(--hq-shadow-md)]">
-          <div className="relative aspect-[16/9] w-full bg-[var(--hq-bg)]">
-            {/* Light mode image — replace web/public/landing/workspace-at-a-glance-light.png */}
+      {
+
+      {/* Workspace at a glance — full composite image (title + cards in asset); theme swap */}
+      <section className="relative mx-auto max-w-7xl px-0 py-12 sm:py-16 lg:py-20">
+        <div className="landing-glance-wrap relative w-full overflow-hidden">
+          <div className="relative aspect-[1989/790] w-full">
             <Image
               src="/landing/workspace-at-a-glance-light.png"
-              alt="Projects workspace overview"
+              alt="See the workspace at a glance — write together, keep a trail, discuss in forums"
               fill
-              className="object-cover landing-glance-light"
+              className="object-contain object-center landing-glance-light"
               sizes="(max-width:1280px) 100vw, 1200px"
               priority
             />
-            {/* Dark mode image — replace web/public/landing/workspace-at-a-glance-dark.png */}
             <Image
               src="/landing/workspace-at-a-glance-dark.png"
-              alt="Projects workspace overview"
+              alt="See the workspace at a glance — write together, keep a trail, discuss in forums"
               fill
-              className="object-cover landing-glance-dark"
+              className="object-contain object-center landing-glance-dark"
               sizes="(max-width:1280px) 100vw, 1200px"
               priority
             />
           </div>
-        </figure>
+          {/* Left / right edge fade into page background */}
+          <div className="landing-glance-fade landing-glance-fade-left" aria-hidden />
+          <div className="landing-glance-fade landing-glance-fade-right" aria-hidden />
+        </div>
       </section>
 
       {/* Value proposition */}
